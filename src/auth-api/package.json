@@ -1,0 +1,6 @@
+{
+  "name": "@anthill/auth-api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Identity Service — utilisateurs, workspaces, API Keys, authentification (Better Auth)."
+}

@@ -1,0 +1,7 @@
+# node_modules is heavy as fuck and we always want to have a clean build anyway
+# in the dockerfiles, so remove it.
+node_modules
+
+# yarn is a dumbass and tries to use git commands whose result change if the
+# .git repository (or file for worktrees) is present but invalid.
+.git

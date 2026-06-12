@@ -1,0 +1,7 @@
+{
+    "name": "@anthill/mail",
+    "version": "0.0.0",
+    "dependencies": {
+        "resend": "^4.0.1"
+    }
+}

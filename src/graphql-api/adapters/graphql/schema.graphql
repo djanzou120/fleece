@@ -1,0 +1,9 @@
+type Workspace {
+  id: ID!
+  name: String!
+  balance: Float!
+}
+
+type Query {
+  workspaceOverview(id: ID!): Workspace
+}

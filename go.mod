@@ -1,0 +1,3 @@
+module fleece
+
+go 1.26.4

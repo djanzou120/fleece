@@ -1,0 +1,6 @@
+{
+  "name": "@anthill/graphql-api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "GraphQL Gateway (BFF) — sert le dashboard, agrège les services via REST interne."
+}

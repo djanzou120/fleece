@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Chargement de la mémoire projet (.ia/MEMORY.md)…",
+            "command": "f=/Users/djanzou120/Documents/Projects/fleece/.ia/MEMORY.md; [ -f \"$f\" ] && jq -n --rawfile m \"$f\" '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:(\"Mémoire projet Fleece — .ia/MEMORY.md (chargée automatiquement au démarrage de session):\\n\\n\" + $m)}}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}

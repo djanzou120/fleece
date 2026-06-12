@@ -1,0 +1,28 @@
+{
+  "license": "ISC",
+  "name": "backend",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "./src/ts/*",
+      "./src/auth-api",
+      "./src/graphql-api"
+    ]
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "5.0.2",
+    "@graphql-codegen/typescript": "4.0.6",
+    "@types/pg": "^8.11.11",
+    "drizzle-kit": "^0.30.4",
+    "esbuild": "^0.19.3",
+    "tsx": "^4.19.3",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.39.3",
+    "graphql-redis-subscriptions": "^2.6.1",
+    "graphql-subscriptions": "^2.0.0",
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.3"
+  }
+}
