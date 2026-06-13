@@ -1,0 +1,10 @@
+{
+  "name": "@fleece/api-common",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Types et interfaces partagés entre le REST Gateway public et le GraphQL Gateway (BFF) : contexte d'authentification, erreurs API, pagination.",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  }
+}

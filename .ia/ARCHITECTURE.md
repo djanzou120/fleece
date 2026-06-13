@@ -63,7 +63,8 @@ fleece/
 │   ├── <pkg>/pkg                  #   descripteur : type=go | node | react | docker | graphql
 │   │
 │   ├── auth-api/                  # Identity Service — TypeScript + Better Auth   🟢
-│   ├── graphql-api/               # GraphQL Gateway (BFF dashboard) — TypeScript  🟢
+│   ├── rest-api/                  # Gateway REST public — TypeScript               🟢
+│   ├── graphql-api/               # Gateway GraphQL privé (BFF dashboard) — TypeScript 🟢
 │   ├── platform-app/             # Frontend dashboard — Next.js/React            🟢
 │   ├── messaging/                 # Go                                            🟢
 │   ├── routing/                   # Go                                            🟢
@@ -80,6 +81,7 @@ fleece/
 │   │   └── app/                   #   Version/Name (injectés au build) + Bootstrap
 │   └── ts/                        # Libs TS transverses partagées (workspaces npm)
 │       ├── logger/  config/  form/  gql/  mail/
+│       └── api-common/            # Types purs partagés entre les deux gateways TS
 │
 ├── migrations/                    # ◀── Migrations de la BASE UNIFIÉE (un seul lieu, outil Atlas)
 │   ├── 0001_identity.sql          #     numérotées globalement, ordre déterministe
@@ -111,7 +113,8 @@ Les noms logiques du TDD se traduisent par des dossiers `src/<pkg>` (parfois nom
 | Service (TDD) | Package (`src/…`) | Type | Phase |
 |---------------|-------------------|------|-------|
 | Identity | `src/auth-api` | node (TS + Better Auth) | 🟢 |
-| GraphQL Gateway (BFF) | `src/graphql-api` | node (TS) | 🟢 |
+| Gateway REST public | `src/rest-api` | node (TS) | 🟢 |
+| Gateway GraphQL privé (BFF dashboard) | `src/graphql-api` | node (TS) | 🟢 |
 | Dashboard | `src/platform-app` | react | 🟢 |
 | Messaging | `src/messaging` | go | 🟢 |
 | Routing | `src/routing` | go | 🟢 |
@@ -264,9 +267,9 @@ src/auth-api/
 
 > **Better Auth = détail d'infrastructure.** La couche Application déclare un **port** `AuthProvider`. L'adapter `better-auth.adapter.ts` (couche 3) l'implémente et la config (couche 4) l'initialise. Conséquence : remplacer ou faire évoluer Better Auth n'impacte ni le domaine ni les cas d'usage.
 
-### 4.2 GraphQL Gateway / BFF — `src/graphql-api` (TypeScript) 🟢
+### 4.2 GraphQL Gateway / BFF — `src/graphql-api` (TypeScript) 🟢 — API **privée** (dashboard)
 
-Le BFF a un domaine **minimal** (il orchestre, il ne possède pas de règles métier d'entreprise ni de base de données propre — TDD §4.10). La Clean Architecture s'applique en privilégiant **Application + Adapters**.
+Audience : **dashboard Next.js uniquement** (sessions JWT). Aucune règle métier propre : Application + Adapters.
 
 ```text
 src/graphql-api/
@@ -288,8 +291,72 @@ src/graphql-api/
 │       └── identity.client.ts
 │
 └── infrastructure/                # ── COUCHE 4 ──
-    └── server.ts                  # Apollo / GraphQL Yoga
+    └── server.ts                  # Apollo / GraphQL Yoga + sessionMiddleware (@fleece/api-common)
 ```
+
+### 4.3 REST Gateway public — `src/rest-api` (TypeScript) 🟢 — API **publique** (clients externes)
+
+Audience : **développeurs tiers** (API Key). Aucune règle métier propre : Application + Adapters.
+Traduit les requêtes REST entrantes en appels HTTP internes vers les services Go.
+
+```text
+src/rest-api/
+├── pkg                            # type=node
+├── index.ts                       # Composition root
+├── package.json   tsconfig.json
+│
+├── application/                   # ── COUCHE 2 : Ports de sortie ──
+│   └── ports/output/
+│       └── clients.ts             # MessagingClient, WalletClient, WebhookClient (interfaces)
+│
+├── adapters/                      # ── COUCHE 3 : Interface Adapters ──
+│   ├── http/                      # Driving : routes REST (POST /v1/messages, GET /v1/wallet, …)
+│   └── clients/                   # Driven : implémentations des ports → HTTP interne vers Go
+│
+└── infrastructure/                # ── COUCHE 4 ──
+    └── server.ts                  # Serveur HTTP + apiKeyMiddleware (@fleece/api-common)
+```
+
+### 4.4 Lib transverse partagée — `src/ts/api-common`
+
+Types **purs, sans framework, sans règle métier** partagés entre `rest-api` et `graphql-api`.
+
+```text
+src/ts/api-common/
+├── auth.ts        # ApiContext, ApiKeyValidator (port), SessionValidator (port)
+├── errors.ts      # ApiError, ApiErrorCode (codes partagés)
+├── pagination.ts  # PageArgs, PageInfo, Page<T>
+└── index.ts       # réexports
+```
+
+**Pourquoi c'est compatible Clean Architecture — voir §4.5.**
+
+### 4.5 Partage de code entre gateways et règle de dépendance
+
+Les deux gateways (`rest-api`, `graphql-api`) sont en **couche 3/4**. `src/ts/api-common` est une **bibliothèque transverse (couche 0)** — elle ne dépend d'aucun framework ni d'aucun service Go, et ne contient aucune règle métier.
+
+```text
+                      ┌────────────────────────────┐
+                      │  src/ts/api-common (C0)     │  Types purs : ApiContext,
+                      │  (aucune dépendance externe) │  ApiError, Page<T>
+                      └───────────┬────────────────┘
+                                  │ importé par
+                  ┌───────────────┴──────────────────┐
+                  ▼                                  ▼
+       src/rest-api (C3/4)             src/graphql-api (C3/4)
+       adapters/http + clients/        adapters/graphql + clients/
+       infrastructure/server           infrastructure/server
+                  │                                  │
+                  └────────────┬─────────────────────┘
+                               ▼ (REST interne)
+                   Services Go (C3/4 de leur propre service)
+```
+
+**Ce qui peut être partagé dans `api-common` :** interfaces de port (`ApiKeyValidator`, `SessionValidator`), types de contexte (`ApiContext`), codes d'erreur, types de pagination.
+
+**Ce qui ne doit PAS être dans `api-common` :** implémentations concrètes de middleware (dépendent d'un framework HTTP), schémas GraphQL, DTOs REST spécifiques à une route, logique métier.
+
+La règle : si un fichier importe `express`, `hono`, `apollo-server` ou un service Go — il va dans le gateway, pas dans `api-common`.
 
 ---
 

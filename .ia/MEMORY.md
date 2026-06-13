@@ -40,7 +40,9 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | D1 | Style d'architecture | **Microservices event-driven** | Tenir P95 < 200 ms (réponse API) ET 10 M msg/j (absorption par queue). |
 | D2 | Langage du cœur métier | **Go** | Performance, concurrence (pipeline d'envoi). |
 | D3 | Service d'authentification | **TypeScript + Better Auth** (`src/auth-api`) | Tirer parti de l'écosystème Better Auth. |
-| D4 | Service GraphQL interne (BFF) | **TypeScript** (`src/graphql-api`) | Écosystème GraphQL/TS côté produit ; sert le dashboard. |
+| D4 | Gateway privé dashboard | **TypeScript GraphQL** (`src/graphql-api`) | Agrège les services Go via REST interne ; sert exclusivement le dashboard Next.js. |
+| D22 | Gateway public API REST | **TypeScript REST** (`src/rest-api`) | API Key + rate limiting + TLS ; P95 < 200 ms ; sert les clients externes. Symétrique avec D4 : deux BFF, deux audiences. |
+| D23 | Lib partagée entre gateways | `src/ts/api-common` | Types purs (ApiContext, ApiError, pagination) sans règle métier ni dépendance framework. Conforme Clean Architecture : couche transverse 0, importable par couches 3/4. |
 | D5 | Communication inter-services (sync) | **REST interne** (pas gRPC) | Cohérence avec l'API publique, simplicité d'outillage. |
 | D6 | Communication asynchrone | **RabbitMQ** (événements) | Découplage du pipeline d'envoi + effets de bord. |
 | D7 | Déploiement | **Kubernetes** | Services sans état, scaling horizontal (HPA), 99.9 %. |
@@ -83,14 +85,15 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | Service | Package | Type |
 |---------|---------|------|
 | Identity | `src/auth-api` | node (TS + Better Auth) |
-| GraphQL Gateway (BFF) | `src/graphql-api` | node (TS) |
+| **Gateway REST public** | `src/rest-api` | node (TS) 🟢 |
+| **Gateway GraphQL privé (BFF dashboard)** | `src/graphql-api` | node (TS) 🟢 |
 | Dashboard | `src/platform-app` | react |
 | Messaging / Routing / Provider / Wallet / Webhook | `src/<même nom>` | go (🟢) |
 | Campaign / Contact-Intelligence / Analytics | `src/<même nom>` | go (🟡) |
 | Schéma + codegen GraphQL | `src/graphql` | graphql |
 | Toolbox dev/CI (psql, **atlas**) | `src/bastion` | docker |
 | Lib Go transverse (Version/Name + Bootstrap) | `src/go/app` | — |
-| Libs TS transverses | `src/ts/*` (logger, config, form, gql, mail) | esbuild |
+| Libs TS transverses | `src/ts/*` (logger, config, form, gql, mail, **api-common**) | esbuild |
 
 ### Couches Clean Architecture (rappel)
 
@@ -116,7 +119,9 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 - ✅ `go vet ./src/...` + `go build ./src/...` OK ; `make build pkg=messaging` produit le binaire (exécuté).
 
 **Pas encore fait / à valider :**
-- Chaîne TS non exécutée (réseau) : `npm install` + `tsc --noEmit` + esbuild (`make build pkg=auth-api` / `graphql-api`).
+- `src/rest-api` scaffolé (D22) — adapters HTTP + clients REST Go + infrastructure serveur à implémenter.
+- `src/ts/api-common` scaffolé (D23) — types purs partagés ; middleware concrets à implémenter dans chaque gateway.
+- Chaîne TS non exécutée (réseau) : `npm install` + `tsc --noEmit` + esbuild (`make build pkg=auth-api` / `graphql-api` / `rest-api`).
 - Commandes Atlas non exécutées : `atlas migrate hash` / `lint` / `apply` (+ générer `atlas.sum`).
 - `deploy/k8s/` (manifests) : à créer.
 - `src/platform-app` (frontend react/Next.js) : non scaffolé (pas de `mk/react.mk` ni `docker/react.dockerfile`).
@@ -126,6 +131,11 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 ---
 
 ## 7. Journal des sessions
+
+### Session 2026-06-13 (suite)
+4. Séparation API publique / API privée : ajouté `src/rest-api` (gateway REST TS public, D22) et `src/ts/api-common`
+   (lib partagée types purs, D23). `src/graphql-api` reste le BFF privé dashboard (GraphQL). Package.json racine mis à jour.
+   ARCHITECTURE.md, MEMORY.md, CLAUDE.md mis à jour en conséquence.
 
 ### Session 2026-06-13
 1. Mis en place un **hook SessionStart** (`.ia/.claude/settings.json`) qui charge `.ia/MEMORY.md` au démarrage (D21).

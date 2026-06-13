@@ -1,0 +1,6 @@
+{
+  "name": "@fleece/rest-api",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Public REST API Gateway — authentification par API Key, rate limiting, routage vers les services internes."
+}

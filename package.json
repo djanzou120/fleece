@@ -6,6 +6,7 @@
     "packages": [
       "./src/ts/*",
       "./src/auth-api",
+      "./src/rest-api",
       "./src/graphql-api"
     ]
   },

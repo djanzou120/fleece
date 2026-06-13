@@ -36,17 +36,18 @@ go vet   ./src/...             # vet the whole monorepo
 
 Go module is **single** (`module fleece`, `go.mod` at repo root). Internal imports follow `fleece/src/<svc>/internal/...`.
 
-### TypeScript services (`src/auth-api`, `src/graphql-api`, `src/ts/*`)
+### TypeScript services (`src/auth-api`, `src/rest-api`, `src/graphql-api`, `src/ts/*`)
 
 ```sh
 npm install                    # install all workspaces (run from repo root)
 npm exec -- tsc -p ./src/<pkg>/tsconfig.json --noEmit   # type-check
-make build pkg=auth-api        # type-check + esbuild bundle → bin/auth-api/index.js
-make test  pkg=auth-api        # jest
-make fmt   pkg=auth-api        # prettier --write
+make build pkg=rest-api        # type-check + esbuild bundle → bin/rest-api/index.js
+make build pkg=graphql-api     # type-check + esbuild bundle → bin/graphql-api/index.js
+make test  pkg=rest-api        # jest
+make fmt   pkg=rest-api        # prettier --write
 ```
 
-Workspaces are declared in the root `package.json` (`src/ts/*`, `src/auth-api`, `src/graphql-api`).
+Workspaces are declared in the root `package.json` (`src/ts/*`, `src/auth-api`, `src/rest-api`, `src/graphql-api`).
 
 ### Database migrations (Atlas)
 
@@ -96,13 +97,16 @@ All services follow a 4-layer model. **Dependencies point inward only.**
 
 **TypeScript services**:
 - `src/auth-api` — Identity Service (Better Auth confined to `adapters/auth/`).
-- `src/graphql-api` — GraphQL Gateway / BFF (no business rules; Application + Adapters only).
+- `src/rest-api` — **Public REST API gateway** (external developers, API Key auth). Application + Adapters only; no business rules.
+- `src/graphql-api` — **Private GraphQL gateway / BFF** (dashboard only, JWT session auth). Application + Adapters only.
+- `src/ts/api-common` — Pure shared types between the two gateways (`ApiContext`, `ApiError`, `Page<T>`). No framework dependencies.
 - Layers sit directly under the package folder (no nested `src/`); entrypoint is `index.ts`.
 
 **Key rules:**
 - `domain/` and `application/` must not import from `adapters/` or `infrastructure/`. Enforced by **depguard** (Go) and **dependency-cruiser** (TS) in CI.
 - No service imports another service's domain. Cross-service calls go through `adapters/clients/` (REST) or RabbitMQ events.
 - Better Auth, Drizzle, RabbitMQ, Postgres, GraphQL are layer-3/4 details — never leak into domain or application.
+- `src/ts/api-common` is a layer-0 transverse lib: only pure types/interfaces, no framework imports. If a file needs to import `express`, `hono`, `apollo-server`, or any Go service client — it belongs in the gateway, not in `api-common`.
 
 ---
 
@@ -135,7 +139,7 @@ Specialised agents are defined in `.ia/.claude/agents/`. For feature work, alway
 |-------|-------|
 | `fleece-pm` | Orchestrator; owns PROJECT_TRACKER |
 | `fleece-go-engineer` | Go services (messaging, routing, provider, wallet, webhook, …) |
-| `fleece-ts-engineer` | auth-api + graphql-api |
+| `fleece-ts-engineer` | auth-api + rest-api + graphql-api + src/ts/api-common |
 | `fleece-frontend-engineer` | src/platform-app (Next.js + shadcn) |
 | `fleece-db-engineer` | migrations/ + PostgreSQL schema |
 | `fleece-devops-engineer` | Makefile/mk/, docker/, deploy/k8s/, CI |
