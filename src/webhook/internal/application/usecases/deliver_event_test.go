@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"fleece/src/webhook/internal/domain"
 )
@@ -96,6 +97,17 @@ func (m *mockDeliveryRepo) FindFailedByEndpoint(_ context.Context, endpointID st
 	var result []*domain.WebhookDelivery
 	for _, d := range m.deliveries {
 		if d.EndpointID == endpointID && d.Status == domain.StatusFailed {
+			cp := *d
+			result = append(result, &cp)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockDeliveryRepo) FindPendingRetries(_ context.Context, at time.Time) ([]*domain.WebhookDelivery, error) {
+	var result []*domain.WebhookDelivery
+	for _, d := range m.deliveries {
+		if d.Status == domain.StatusFailed && !d.NextRetryAt.IsZero() && !d.NextRetryAt.After(at) {
 			cp := *d
 			result = append(result, &cp)
 		}

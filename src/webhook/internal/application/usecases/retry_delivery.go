@@ -57,10 +57,9 @@ func (uc *RetryDelivery) Execute(ctx context.Context, deliveryID int64) error {
 		return fmt.Errorf("retry_delivery: delivery %d: %w", deliveryID, domain.ErrMaxRetriesExceeded)
 	}
 
-	// TODO(schema): payload non persiste (colonne absente de 0006) — RetryDelivery ne peut
-	// pas redispatcher un body fiable tant que webhook_deliveries ne stocke pas le payload +
-	// next_retry_at. Necessite une migration (db-engineer) avant le cablage d'un scheduler
-	// de retry.
+	// Garde de surete : ne jamais redispatcher un body vide. Le payload est persiste
+	// (colonne "payload" ajoutee en 0010_webhook_schema.sql) ; une delivery sans payload
+	// est anormale et ne doit pas etre rejouee a l'aveugle.
 	if len(delivery.Payload) == 0 {
 		return fmt.Errorf("retry_delivery: delivery %d: %w", deliveryID, domain.ErrEmptyPayload)
 	}

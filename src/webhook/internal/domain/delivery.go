@@ -14,8 +14,8 @@ type WebhookDelivery struct {
 	Event string
 
 	// Payload est le corps JSON de l'evenement.
-	// NOTE(schema): colonne "payload" absente de 0006 — non persistee.
-	// Le payload reste en memoire le temps de la livraison.
+	// Persiste via la colonne "payload" (BYTEA) ajoutee en 0010_webhook_schema.sql,
+	// pour permettre un redispatch fiable lors des retries.
 	Payload []byte
 
 	// Status est l'etat courant de la livraison.
@@ -25,7 +25,7 @@ type WebhookDelivery struct {
 	Attempts int
 
 	// NextRetryAt indique quand la prochaine tentative doit etre effectuee.
-	// NOTE(schema): colonne "next_retry_at" absente de 0006 — non persistee.
-	// Le scheduling de retry est assure par la logique applicative.
+	// Persiste via la colonne "next_retry_at" (TIMESTAMPTZ) ajoutee en 0010_webhook_schema.sql,
+	// pour un scheduling de retry durable (lu par le scheduler via FindPendingRetries).
 	NextRetryAt time.Time
 }

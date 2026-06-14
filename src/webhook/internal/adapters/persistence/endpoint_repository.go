@@ -35,12 +35,13 @@ func (r *EndpointRepository) Save(ctx context.Context, e *domain.WebhookEndpoint
 	eventsLiteral := arrayLiteral(rec.Events)
 
 	const query = `
-		INSERT INTO webhook.webhook_endpoints (id, workspace_id, url, secret, events)
-		VALUES ($1, $2, $3, $4, $5::text[])
+		INSERT INTO webhook.webhook_endpoints (id, workspace_id, url, secret, events, active)
+		VALUES ($1, $2, $3, $4, $5::text[], $6)
 		ON CONFLICT (id) DO UPDATE
 		  SET url    = EXCLUDED.url,
 		      secret = EXCLUDED.secret,
-		      events = EXCLUDED.events
+		      events = EXCLUDED.events,
+		      active = EXCLUDED.active
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		rec.ID,
@@ -48,6 +49,7 @@ func (r *EndpointRepository) Save(ctx context.Context, e *domain.WebhookEndpoint
 		rec.URL,
 		rec.Secret,
 		eventsLiteral,
+		rec.Active,
 	)
 	if err != nil {
 		return fmt.Errorf("persistence: Save endpoint %s: %w", e.ID, err)
@@ -59,7 +61,7 @@ func (r *EndpointRepository) Save(ctx context.Context, e *domain.WebhookEndpoint
 // Retourne domain.ErrEndpointNotFound si l'endpoint est introuvable.
 func (r *EndpointRepository) FindByID(ctx context.Context, id string) (*domain.WebhookEndpoint, error) {
 	const query = `
-		SELECT id, workspace_id, url, secret, events, created_at
+		SELECT id, workspace_id, url, secret, events, active, created_at
 		  FROM webhook.webhook_endpoints
 		 WHERE id = $1
 	`
@@ -75,14 +77,16 @@ func (r *EndpointRepository) FindByID(ctx context.Context, id string) (*domain.W
 }
 
 // FindByWorkspaceAndEvent retourne les endpoints actifs d'un workspace abonnes a l'evenement.
-// Comme la colonne "active" est absente du schema, tous les endpoints sont consideres actifs.
+// Seuls les endpoints dont la colonne active = true sont retournes.
 func (r *EndpointRepository) FindByWorkspaceAndEvent(ctx context.Context, workspaceID, event string) ([]*domain.WebhookEndpoint, error) {
 	// Filtre sur le tableau events via l'operateur @> (contains) de Postgres.
+	// Le filtre active = true est desormais effectue en base.
 	const query = `
-		SELECT id, workspace_id, url, secret, events, created_at
+		SELECT id, workspace_id, url, secret, events, active, created_at
 		  FROM webhook.webhook_endpoints
 		 WHERE workspace_id = $1
 		   AND events @> ARRAY[$2]::text[]
+		   AND active = true
 	`
 	rows, err := r.db.QueryContext(ctx, query, workspaceID, event)
 	if err != nil {
@@ -93,10 +97,10 @@ func (r *EndpointRepository) FindByWorkspaceAndEvent(ctx context.Context, worksp
 	return scanEndpoints(rows)
 }
 
-// ListByWorkspace retourne tous les endpoints d'un workspace.
+// ListByWorkspace retourne tous les endpoints d'un workspace (actifs et inactifs).
 func (r *EndpointRepository) ListByWorkspace(ctx context.Context, workspaceID string) ([]*domain.WebhookEndpoint, error) {
 	const query = `
-		SELECT id, workspace_id, url, secret, events, created_at
+		SELECT id, workspace_id, url, secret, events, active, created_at
 		  FROM webhook.webhook_endpoints
 		 WHERE workspace_id = $1
 		 ORDER BY created_at ASC
@@ -142,6 +146,7 @@ func scanEndpoint(row rowScanner) (endpointRecord, error) {
 		&rec.URL,
 		&rec.Secret,
 		&eventsStr,
+		&rec.Active,
 		&rec.CreatedAt,
 	)
 	if err != nil {

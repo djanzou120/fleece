@@ -82,8 +82,6 @@ func main() {
 		Endpoints:  endpointRepo,
 		Dispatcher: httpDisp,
 	}
-	// retryUC est declare pour etre utilise par un scheduler futur.
-	_ = retryUC
 
 	// --- Couche 3 : consumer d'evenements (driving) ---
 	eventConsumer := consumer.NewEventConsumer(broker, deliverUC)
@@ -109,6 +107,31 @@ func main() {
 	go func() {
 		if err := eventConsumer.Start(ctx); err != nil {
 			log.Printf("webhook: consumer error: %v", err)
+		}
+	}()
+
+	// Scheduler de retry : toutes les 60 s, relance les livraisons en echec dont
+	// next_retry_at est echu. Si la base est indisponible (db==nil), le repo
+	// retourne une liste vide sans paniquer.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case t := <-ticker.C:
+				pending, err := deliveryRepo.FindPendingRetries(ctx, t)
+				if err != nil {
+					log.Printf("webhook: retry scheduler: FindPendingRetries: %v", err)
+					continue
+				}
+				for _, d := range pending {
+					if err := retryUC.Execute(ctx, d.ID); err != nil {
+						log.Printf("webhook: retry scheduler: delivery %d: %v", d.ID, err)
+					}
+				}
+			}
 		}
 	}()
 

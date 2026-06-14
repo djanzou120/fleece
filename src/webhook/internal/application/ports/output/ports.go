@@ -5,6 +5,7 @@ package output
 
 import (
 	"context"
+	"time"
 
 	"fleece/src/webhook/internal/domain"
 )
@@ -42,6 +43,10 @@ type DeliveryRepository interface {
 	// FindFailedByEndpoint retourne les livraisons en echec d'un endpoint,
 	// ordonnees par date de creation (les plus anciennes en premier).
 	FindFailedByEndpoint(ctx context.Context, endpointID string) ([]*domain.WebhookDelivery, error)
+
+	// FindPendingRetries retourne les livraisons dont next_retry_at est echu (next_retry_at <= at)
+	// et dont le statut justifie un retry (failed). Utilisee par le scheduler periodique.
+	FindPendingRetries(ctx context.Context, at time.Time) ([]*domain.WebhookDelivery, error)
 }
 
 // HTTPDispatcher envoie le payload d'un evenement a l'URL cible via HTTP POST.

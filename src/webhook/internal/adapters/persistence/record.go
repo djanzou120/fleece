@@ -1,9 +1,9 @@
 // Package persistence implemente les repositories webhook via *sql.DB.
 // Couche 3 (Interface Adapters, driven).
 //
-// Ecarts de schema (migration 0006_webhook.sql) documentes :
-//   - webhook_endpoints : pas de colonne "active" → par defaut true a la lecture.
-//   - webhook_deliveries : pas de colonne "payload" ni "next_retry_at" → non persistes.
+// Toutes les colonnes de la migration 0010_webhook_schema.sql sont desormais persistees :
+//   - webhook_endpoints : "active" (BOOLEAN NOT NULL DEFAULT true)
+//   - webhook_deliveries : "payload" (BYTEA), "next_retry_at" (TIMESTAMPTZ nullable)
 package persistence
 
 import (
@@ -13,20 +13,17 @@ import (
 )
 
 // endpointRecord est le modele de la table webhook.webhook_endpoints.
-// Seules les colonnes presentes dans 0006_webhook.sql sont listees ici.
 type endpointRecord struct {
 	ID          string
 	WorkspaceID string
 	URL         string
 	Secret      string
 	Events      []string // text[] Postgres
+	Active      bool
 	CreatedAt   time.Time
-	// TODO(schema): colonne "active" absente de 0006 — non persistee.
-	// La valeur true est injectee par defaut a la lecture.
 }
 
 // toEntity convertit un endpointRecord en entite domaine.
-// Active est force a true car la colonne n'existe pas en base (0006_webhook.sql).
 func (r endpointRecord) toEntity() *domain.WebhookEndpoint {
 	return &domain.WebhookEndpoint{
 		ID:          r.ID,
@@ -34,8 +31,7 @@ func (r endpointRecord) toEntity() *domain.WebhookEndpoint {
 		URL:         r.URL,
 		Secret:      r.Secret,
 		Events:      r.Events,
-		// TODO(schema): colonne "active" absente de 0006 — active=true par defaut.
-		Active: true,
+		Active:      r.Active,
 	}
 }
 
@@ -47,46 +43,51 @@ func fromEndpoint(e *domain.WebhookEndpoint) endpointRecord {
 		URL:         e.URL,
 		Secret:      e.Secret,
 		Events:      e.Events,
-		// TODO(schema): colonne "active" absente de 0006 — non persistee.
+		Active:      e.Active,
 	}
 }
 
 // deliveryRecord est le modele de la table webhook.webhook_deliveries.
-// Seules les colonnes presentes dans 0006_webhook.sql sont listees ici.
 type deliveryRecord struct {
-	ID         int64
-	EndpointID string
-	Event      string
-	Status     string
-	Attempts   int
-	CreatedAt  time.Time
-	// TODO(schema): colonnes "payload" et "next_retry_at" absentes de 0006 — non persistees.
-	// Le payload reste en memoire ; le scheduling de retry est gere en applicatif.
+	ID          int64
+	EndpointID  string
+	Event       string
+	Status      string
+	Attempts    int
+	Payload     []byte
+	NextRetryAt *time.Time // nullable TIMESTAMPTZ
+	CreatedAt   time.Time
 }
 
 // toEntity convertit un deliveryRecord en entite domaine.
-// Payload et NextRetryAt sont absents du schema et valent leur zero value.
 func (r deliveryRecord) toEntity() *domain.WebhookDelivery {
-	return &domain.WebhookDelivery{
+	d := &domain.WebhookDelivery{
 		ID:         r.ID,
 		EndpointID: r.EndpointID,
 		Event:      r.Event,
 		Status:     domain.DeliveryStatus(r.Status),
 		Attempts:   r.Attempts,
-		// TODO(schema): payload absent de 0006 — non restaure depuis la base.
-		// TODO(schema): next_retry_at absent de 0006 — non restaure depuis la base.
+		Payload:    r.Payload,
 	}
+	if r.NextRetryAt != nil {
+		d.NextRetryAt = *r.NextRetryAt
+	}
+	return d
 }
 
 // fromDelivery convertit une entite domaine en deliveryRecord.
 func fromDelivery(d *domain.WebhookDelivery) deliveryRecord {
-	return deliveryRecord{
+	rec := deliveryRecord{
 		ID:         d.ID,
 		EndpointID: d.EndpointID,
 		Event:      d.Event,
 		Status:     string(d.Status),
 		Attempts:   d.Attempts,
-		// TODO(schema): payload non persiste (absent de 0006).
-		// TODO(schema): next_retry_at non persiste (absent de 0006).
+		Payload:    d.Payload,
 	}
+	if !d.NextRetryAt.IsZero() {
+		t := d.NextRetryAt
+		rec.NextRetryAt = &t
+	}
+	return rec
 }
