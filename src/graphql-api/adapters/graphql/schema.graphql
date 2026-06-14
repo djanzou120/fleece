@@ -1,9 +1,140 @@
+# Schéma GraphQL — BFF Dashboard Fleece (MVP)
+# Audience : dashboard Next.js uniquement (sessions JWT).
+# Chargé comme texte par esbuild (--loader:.graphql=text).
+
+# ---------------------------------------------------------------------------
+# Types partagés — pagination cursor-based
+# ---------------------------------------------------------------------------
+
+"""Informations de pagination cursor-based."""
+type PageInfo {
+  """Curseur vers la prochaine page ; null si dernière page."""
+  nextCursor: String
+  """Indique s'il existe une page suivante."""
+  hasNextPage: Boolean!
+}
+
+# ---------------------------------------------------------------------------
+# Types métier
+# ---------------------------------------------------------------------------
+
+"""Workspace (espace de travail) d'un client Fleece."""
 type Workspace {
   id: ID!
   name: String!
-  balance: Float!
+  country: String!
+  slug: String!
+  plan: String!
+  createdAt: String!
 }
 
+"""Clé API d'un workspace (permet l'accès à l'API publique REST)."""
+type ApiKey {
+  id: ID!
+  workspaceId: ID!
+  name: String!
+  prefix: String!
+  active: Boolean!
+  createdAt: String!
+  expiresAt: String
+}
+
+"""Résultat de la création d'une clé API (rawKey exposé une seule fois)."""
+type CreateApiKeyResult {
+  """Clé brute — à afficher une seule fois, non stockée en clair."""
+  rawKey: String!
+  apiKey: ApiKey!
+}
+
+"""Solde du wallet prépayé d'un workspace."""
+type WalletBalance {
+  workspaceId: ID!
+  """Montant dans la plus petite unité monétaire (centimes)."""
+  balance: Float!
+  """Code devise ISO 4217 (ex. XOF, EUR)."""
+  currency: String!
+}
+
+"""Transaction du wallet (crédit ou débit)."""
+type Transaction {
+  id: ID!
+  workspaceId: ID!
+  type: String!
+  amount: Float!
+  currency: String!
+  description: String!
+  createdAt: String!
+}
+
+"""Page paginée de transactions."""
+type TransactionPage {
+  items: [Transaction!]!
+  pageInfo: PageInfo!
+}
+
+"""Message envoyé via Fleece."""
+type Message {
+  id: ID!
+  workspaceId: ID!
+  to: String!
+  channel: String!
+  content: String!
+  status: String!
+  createdAt: String!
+  updatedAt: String!
+}
+
+"""Page paginée de messages."""
+type MessagePage {
+  items: [Message!]!
+  pageInfo: PageInfo!
+}
+
+"""Endpoint webhook d'un workspace."""
+type WebhookEndpoint {
+  id: ID!
+  workspaceId: ID!
+  url: String!
+  events: [String!]!
+  active: Boolean!
+  createdAt: String!
+}
+
+# ---------------------------------------------------------------------------
+# Queries
+# ---------------------------------------------------------------------------
+
 type Query {
-  workspaceOverview(id: ID!): Workspace
+  """Récupère un workspace par son identifiant (null si absent)."""
+  workspace(id: ID!): Workspace
+
+  """Liste les clés API d'un workspace."""
+  apiKeys(workspaceId: ID!): [ApiKey!]!
+
+  """Récupère le solde du wallet d'un workspace."""
+  walletBalance(workspaceId: ID!): WalletBalance!
+
+  """Liste paginée des messages d'un workspace (cursor-based)."""
+  messages(workspaceId: ID!, cursor: String, limit: Int): MessagePage!
+
+  """Liste les endpoints webhook d'un workspace."""
+  webhookEndpoints(workspaceId: ID!): [WebhookEndpoint!]!
+}
+
+# ---------------------------------------------------------------------------
+# Mutations
+# ---------------------------------------------------------------------------
+
+type Mutation {
+  """Crée une nouvelle clé API pour un workspace."""
+  createApiKey(workspaceId: ID!, name: String!): CreateApiKeyResult!
+
+  """Révoque une clé API (désactivation immédiate)."""
+  revokeApiKey(workspaceId: ID!, keyId: ID!): Boolean!
+
+  """Enregistre un nouvel endpoint webhook."""
+  createWebhookEndpoint(workspaceId: ID!, url: String!, events: [String!]!): WebhookEndpoint!
+
+  """Supprime un endpoint webhook."""
+  deleteWebhookEndpoint(workspaceId: ID!, id: ID!): Boolean!
 }

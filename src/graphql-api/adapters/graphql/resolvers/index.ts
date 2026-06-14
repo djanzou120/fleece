@@ -1,11 +1,65 @@
-// Couche 3 — Résolveurs GraphQL (driving). Délèguent aux use cases.
+// Couche 3 — Adapter GraphQL : point d'entrée des résolveurs.
+// Fusionne les résolveurs workspace, wallet et webhook en un map { Query, Mutation }
+// injecté dans le serveur GraphQL (Apollo / Yoga).
 
-import { GetWorkspaceOverview } from "../../../application/use-cases/get-workspace-overview";
+import type { GetWorkspaceOverview } from "../../../application/use-cases/get-workspace-overview.js";
+import type { ListApiKeys } from "../../../application/use-cases/list-api-keys.js";
+import type { ManageWebhook } from "../../../application/use-cases/manage-webhook.js";
+import type { IdentityClient, WalletClient, MessagingClient } from "../../../application/ports/output/clients.js";
 
-export function buildResolvers(overview: GetWorkspaceOverview) {
+import { buildWorkspaceResolvers } from "./workspace.resolver.js";
+import { buildWalletResolvers } from "./wallet.resolver.js";
+import { buildWebhookResolvers } from "./webhook.resolver.js";
+
+// ---------------------------------------------------------------------------
+// Types des dépendances globales
+// ---------------------------------------------------------------------------
+
+export interface ResolverDeps {
+  getWorkspaceOverview: GetWorkspaceOverview;
+  listApiKeys: ListApiKeys;
+  manageWebhook: ManageWebhook;
+  identityClient: IdentityClient;
+  walletClient: WalletClient;
+  messagingClient: MessagingClient;
+}
+
+// ---------------------------------------------------------------------------
+// buildResolvers — fusionne les 3 groupes de résolveurs
+// ---------------------------------------------------------------------------
+
+/**
+ * Construit la map complète des résolveurs GraphQL à partir des dépendances injectées.
+ * La map est directement passée au serveur GraphQL (Apollo Server, GraphQL Yoga, etc.).
+ *
+ * Structure retournée : { Query: { ... }, Mutation: { ... } }
+ */
+export function buildResolvers(deps: ResolverDeps) {
+  const workspace = buildWorkspaceResolvers({
+    getWorkspaceOverview: deps.getWorkspaceOverview,
+    listApiKeys: deps.listApiKeys,
+    identityClient: deps.identityClient,
+  });
+
+  const wallet = buildWalletResolvers({
+    walletClient: deps.walletClient,
+    messagingClient: deps.messagingClient,
+  });
+
+  const webhook = buildWebhookResolvers({
+    manageWebhook: deps.manageWebhook,
+  });
+
+  // Fusion des groupes Query et Mutation de chaque résolveur
   return {
     Query: {
-      workspaceOverview: (_parent: unknown, args: { id: string }) => overview.execute(args.id),
+      ...workspace.Query,
+      ...wallet.Query,
+      ...webhook.Query,
+    },
+    Mutation: {
+      ...workspace.Mutation,
+      ...webhook.Mutation,
     },
   };
 }
