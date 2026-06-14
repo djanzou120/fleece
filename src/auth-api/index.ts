@@ -44,9 +44,6 @@ async function main(): Promise<void> {
   // BetterAuthProvider wrappant l'instance Better Auth (stub offline)
   const authProvider = new BetterAuthProvider(auth);
 
-  // Silence "unused variable" — authProvider sera consommé par les use cases de session
-  void authProvider;
-
   // -------------------------------------------------------------------------
   // Couche 2 — Use cases
   // -------------------------------------------------------------------------
@@ -58,7 +55,7 @@ async function main(): Promise<void> {
   const rotateApiKey = new RotateApiKey(apiKeyRepo);
 
   // -------------------------------------------------------------------------
-  // Couche 3 — Handler HTTP
+  // Couche 3 — Handler HTTP (authProvider injecté pour POST /validate-session)
   // -------------------------------------------------------------------------
 
   const handler = new AuthHandler(
@@ -67,6 +64,7 @@ async function main(): Promise<void> {
     revokeApiKey,
     validateApiKey,
     rotateApiKey,
+    authProvider,
   );
 
   // -------------------------------------------------------------------------

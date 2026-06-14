@@ -10,25 +10,17 @@ export type UserRole = "owner" | "member";
 /**
  * Entité User : utilisateur appartenant à un workspace.
  *
- * Champs persistés dans 0001 : id, workspace_id, email, created_at.
- * Champs riches non persistés :
- *  - name : TODO(schema): absent de 0001 — aligner migration avant production.
- *  - role : TODO(schema): absent de 0001 — aligner migration avant production.
+ * Tous les champs sont désormais persistés :
+ *   - 0001_identity.sql : id, workspace_id, email, created_at
+ *   - 0011_identity_schema.sql : name, role
  */
 export interface User {
   readonly id: string;
   readonly email: string;
-  /**
-   * Nom d'affichage.
-   * TODO(schema): colonne name absente de 0001 — aligner migration avant production.
-   */
+  /** Nom d'affichage. Persisté (0011 — colonne name VARCHAR(255)). */
   readonly name: string;
   readonly workspaceId: string;
-  /**
-   * Rôle dans le workspace.
-   * TODO(schema): colonne role absente de 0001 — aligner migration avant production.
-   * Valeur par défaut à la lecture : "owner" pour le premier utilisateur créé avec le workspace.
-   */
+  /** Rôle dans le workspace. Persisté (0011 — colonne role VARCHAR(50)). */
   readonly role: UserRole;
   readonly createdAt: Date;
 }

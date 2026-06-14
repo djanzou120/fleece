@@ -23,19 +23,25 @@ export interface DrizzleDb {
 }
 
 // ---------------------------------------------------------------------------
-// Mappage entité domaine ↔ lignes 0001_identity.sql
+// Mappage entité domaine ↔ lignes SQL (0001 + 0011_identity_schema.sql)
 // ---------------------------------------------------------------------------
 
-/** Ligne telle que retournée par la table identity.workspaces (colonnes 0001 exactes). */
+/**
+ * Ligne telle que retournée par la table identity.workspaces.
+ * Colonnes 0001 : id, name, country, created_at
+ * Colonnes 0011 : slug, owner_id, plan
+ */
 interface WorkspaceRow {
   id: string;
   name: string;
   country: string;
+  /** slug : VARCHAR(100) NOT NULL DEFAULT '' — disponible depuis 0011 */
+  slug: string;
+  /** owner_id : UUID nullable — disponible depuis 0011 */
+  owner_id: string | null;
+  /** plan : VARCHAR(50) NOT NULL DEFAULT 'free' — disponible depuis 0011 */
+  plan: string;
   created_at: Date;
-  // Colonnes absentes de 0001 — non présentes dans cette interface :
-  // slug     : TODO(schema): aligner migration avant production
-  // owner_id : TODO(schema): aligner migration avant production
-  // plan     : TODO(schema): aligner migration avant production
 }
 
 function rowToEntity(row: WorkspaceRow): Workspace {
@@ -43,12 +49,12 @@ function rowToEntity(row: WorkspaceRow): Workspace {
     row.id,
     row.name,
     row.country,
-    // ownerId  : TODO(schema): absent de 0001 — valeur par défaut en attendant la migration
-    "",
-    // slug     : TODO(schema): absent de 0001 — dérivé du nom à la lecture
-    row.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
-    // plan     : TODO(schema): absent de 0001 — "free" par défaut
-    "free",
+    // owner_id → ownerId (nullable en base, chaîne vide si absent)
+    row.owner_id ?? "",
+    // slug : persisté depuis 0011
+    row.slug,
+    // plan : persisté depuis 0011
+    row.plan,
     row.created_at,
   );
 }
@@ -66,7 +72,9 @@ export class DrizzleWorkspaceRepository implements WorkspaceRepository {
     //   id: workspace.id,
     //   name: workspace.name,
     //   country: workspace.country,
-    //   // slug, owner_id, plan : TODO(schema) — colonnes absentes de 0001
+    //   slug: workspace.slug,
+    //   owner_id: workspace.ownerId || null,
+    //   plan: workspace.plan,
     //   created_at: workspace.createdAt,
     // }).onConflictDoNothing();
     void workspace;

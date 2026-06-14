@@ -1,9 +1,9 @@
 // Couche 4 — Infrastructure : définitions de tables Drizzle pour le schéma "identity".
-// ALIGNÉES sur migrations/0001_identity.sql (Atlas = source de vérité).
+// ALIGNÉES sur migrations/0001_identity.sql + 0011_identity_schema.sql (Atlas = source de vérité).
 // Drizzle = query builder + typage UNIQUEMENT. Ne pas activer les migrations Drizzle.
 //
 // OFFLINE STUB : drizzle-orm peut ne pas être installé.
-// TODO: import { pgSchema, pgTable, uuid, text, timestamp, bigserial } from 'drizzle-orm/pg-core'
+// TODO: import { pgSchema, pgTable, uuid, text, varchar, timestamp, bigserial } from 'drizzle-orm/pg-core'
 
 // ---------------------------------------------------------------------------
 // Stubs locaux Drizzle (types purs, sans implémentation)
@@ -15,6 +15,7 @@
 //   pgSchema,
 //   uuid,
 //   text,
+//   varchar,
 //   timestamp,
 //   bigserial,
 // } from "drizzle-orm/pg-core";
@@ -43,13 +44,16 @@ function pgSchemaStub(name: string) {
 /** Stubs de types de colonnes Drizzle. */
 const uuid = () => ({ _type: "uuid" }) as DrizzleColumn;
 const text = () => ({ _type: "text" }) as DrizzleColumn;
+/** varchar(n) — stub acceptant le nom de colonne et les options (ex. { length: 100 }). */
+const varchar = (_name?: string, _opts?: Record<string, unknown>) =>
+  ({ _type: "varchar" }) as DrizzleColumn;
 const timestamp = (_name?: string, _opts?: Record<string, unknown>) =>
   ({ _type: "timestamp" }) as DrizzleColumn;
 const bigserial = (_name?: string, _opts?: Record<string, unknown>) =>
   ({ _type: "bigserial" }) as DrizzleColumn;
 
 // ---------------------------------------------------------------------------
-// Schéma Drizzle : "identity" (reflète 0001_identity.sql exactement)
+// Schéma Drizzle : "identity" (reflète 0001_identity.sql + 0011_identity_schema.sql)
 // ---------------------------------------------------------------------------
 
 const identity = pgSchemaStub("identity");
@@ -57,47 +61,62 @@ const identity = pgSchemaStub("identity");
 /**
  * identity.workspaces
  * Colonnes 0001 : id, name, country, created_at
- * NON persistés (schema debt) : slug, owner_id, plan
+ * Colonnes 0011 : slug (varchar 100, NOT NULL DEFAULT ''), owner_id (uuid, nullable), plan (varchar 50, NOT NULL DEFAULT 'free')
  */
 export const workspacesTable = identity.table("workspaces", {
   id: uuid(),
   name: text(),
   country: text(),
-  // slug        : TODO(schema): absent de 0001 — aligner migration avant production
-  // owner_id    : TODO(schema): absent de 0001 — aligner migration avant production
-  // plan        : TODO(schema): absent de 0001 — aligner migration avant production
+  /** slug : VARCHAR(100) NOT NULL DEFAULT '' — ajouté par 0011_identity_schema.sql */
+  slug: varchar("slug", { length: 100 }),
+  /** owner_id : UUID nullable — ajouté par 0011_identity_schema.sql */
+  owner_id: uuid(),
+  /** plan : VARCHAR(50) NOT NULL DEFAULT 'free' — ajouté par 0011_identity_schema.sql */
+  plan: varchar("plan", { length: 50 }),
   created_at: timestamp("created_at", { withTimezone: true }),
 });
 
 /**
  * identity.users
  * Colonnes 0001 : id, workspace_id, email, created_at
- * NON persistés (schema debt) : name, role
+ * Colonnes 0011 : name (varchar 255, NOT NULL DEFAULT ''), role (varchar 50, NOT NULL DEFAULT 'member')
  */
 export const usersTable = identity.table("users", {
   id: uuid(),
   workspace_id: uuid(),
   email: text(),
-  // name : TODO(schema): absent de 0001 — aligner migration avant production
-  // role : TODO(schema): absent de 0001 — aligner migration avant production
+  /** name : VARCHAR(255) NOT NULL DEFAULT '' — ajouté par 0011_identity_schema.sql */
+  name: varchar("name", { length: 255 }),
+  /** role : VARCHAR(50) NOT NULL DEFAULT 'member' — ajouté par 0011_identity_schema.sql */
+  role: varchar("role", { length: 50 }),
   created_at: timestamp("created_at", { withTimezone: true }),
 });
 
 /**
  * identity.api_keys
  * Colonnes 0001 : id, workspace_id, hashed_key, status, created_at, revoked_at
- * NON persistés (schema debt) : name, prefix, permissions, last_used_at, expires_at
+ * Colonnes 0011 :
+ *   name         : VARCHAR(255) NOT NULL DEFAULT ''
+ *   prefix       : VARCHAR(20)  NOT NULL DEFAULT ''
+ *   permissions  : TEXT[]       NOT NULL DEFAULT '{}'
+ *   last_used_at : TIMESTAMPTZ  nullable
+ *   expires_at   : TIMESTAMPTZ  nullable
  */
 export const apiKeysTable = identity.table("api_keys", {
   id: uuid(),
   workspace_id: uuid(),
   hashed_key: text(),
   status: text(), // 'active' | 'revoked'
-  // name         : TODO(schema): absent de 0001 — aligner migration avant production
-  // prefix       : TODO(schema): absent de 0001 — aligner migration avant production
-  // permissions  : TODO(schema): absent de 0001 — aligner migration avant production
-  // last_used_at : TODO(schema): absent de 0001 — aligner migration avant production
-  // expires_at   : TODO(schema): absent de 0001 — aligner migration avant production
+  /** name : VARCHAR(255) NOT NULL DEFAULT '' — ajouté par 0011_identity_schema.sql */
+  name: varchar("name", { length: 255 }),
+  /** prefix : VARCHAR(20) NOT NULL DEFAULT '' — ajouté par 0011_identity_schema.sql */
+  prefix: varchar("prefix", { length: 20 }),
+  /** permissions : TEXT[] NOT NULL DEFAULT '{}' — ajouté par 0011_identity_schema.sql */
+  permissions: text(), // TEXT[] — stub représenté comme text ; type réel : text().array()
+  /** last_used_at : TIMESTAMPTZ nullable — ajouté par 0011_identity_schema.sql */
+  last_used_at: timestamp("last_used_at", { withTimezone: true }),
+  /** expires_at : TIMESTAMPTZ nullable — ajouté par 0011_identity_schema.sql */
+  expires_at: timestamp("expires_at", { withTimezone: true }),
   created_at: timestamp("created_at", { withTimezone: true }),
   revoked_at: timestamp("revoked_at", { withTimezone: true }),
 });

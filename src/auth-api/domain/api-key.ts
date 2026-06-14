@@ -4,51 +4,31 @@
  * Entité ApiKey : clé d'API appartenant à un workspace.
  * La clé en clair n'est JAMAIS stockée, uniquement son hash SHA-256 (keyHash).
  *
- * Champs riches conformes à la spec T-006.
- * NOTE écarts avec 0001_identity.sql :
- *  - name          : TODO(schema): absent de 0001 — aligner migration avant production.
- *  - prefix        : TODO(schema): absent de 0001 — aligner migration avant production.
- *  - permissions   : TODO(schema): absent de 0001 — aligner migration avant production.
- *  - lastUsedAt    : TODO(schema): absent de 0001 — aligner migration avant production.
- *  - expiresAt     : TODO(schema): absent de 0001 — aligner migration avant production.
- *  - active (bool) : dérivé de status ('active'/'revoked') — persisté via status en 0001.
- *  - revokedAt     : persisté via revoked_at en 0001.
+ * Tous les champs sont désormais persistés :
+ *   - 0001_identity.sql : id, workspace_id, hashed_key, status, created_at, revoked_at
+ *   - 0011_identity_schema.sql : name, prefix, permissions, last_used_at, expires_at
+ *   - active (bool) : dérivé de status ('active'/'revoked') en base.
  */
 export class ApiKey {
   constructor(
     public readonly id: string,
     public readonly workspaceId: string,
-    /** Hash SHA-256 de la clé brute. Seule valeur persistée (hashed_key). */
+    /** Hash SHA-256 de la clé brute. Persisté (0001 — colonne hashed_key). */
     public readonly keyHash: string,
-    /**
-     * Préfixe lisible de la clé (ex. "fk_abc123").
-     * TODO(schema): colonne prefix absente de 0001 — aligner migration avant production.
-     */
+    /** Préfixe lisible de la clé (ex. "fk_abc123"). Persisté (0011 — colonne prefix VARCHAR(20)). */
     public readonly prefix: string,
-    /**
-     * Nom descriptif de la clé (ex. "Production key").
-     * TODO(schema): colonne name absente de 0001 — aligner migration avant production.
-     */
+    /** Nom descriptif de la clé (ex. "Production key"). Persisté (0011 — colonne name VARCHAR(255)). */
     public readonly name: string,
-    /**
-     * Liste de permissions accordées à cette clé (ex. ["messages:send"]).
-     * TODO(schema): colonne permissions absente de 0001 — aligner migration avant production.
-     */
+    /** Permissions accordées à cette clé (ex. ["messages:send"]). Persisté (0011 — colonne permissions TEXT[]). */
     public readonly permissions: string[],
-    /** Si false, la clé est révoquée. Mappé sur status='active'|'revoked' en base. */
+    /** Si false, la clé est révoquée. Mappé sur status='active'|'revoked' (0001). */
     public active: boolean,
-    /**
-     * Dernière utilisation de la clé.
-     * TODO(schema): colonne last_used_at absente de 0001 — aligner migration avant production.
-     */
+    /** Dernière utilisation. Persisté (0011 — colonne last_used_at TIMESTAMPTZ nullable). */
     public lastUsedAt: Date | null,
-    /**
-     * Date d'expiration optionnelle.
-     * TODO(schema): colonne expires_at absente de 0001 — aligner migration avant production.
-     */
+    /** Date d'expiration optionnelle. Persisté (0011 — colonne expires_at TIMESTAMPTZ nullable). */
     public readonly expiresAt: Date | null,
     public readonly createdAt: Date,
-    /** Date de révocation. Persistée via revoked_at en 0001. */
+    /** Date de révocation. Persistée (0001 — colonne revoked_at). */
     public revokedAt: Date | null = null,
   ) {}
 

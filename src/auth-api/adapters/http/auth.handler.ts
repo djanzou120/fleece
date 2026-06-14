@@ -16,6 +16,7 @@ import {
   UnauthorizedError,
 } from "../../domain/errors.js";
 import { ApiError } from "@fleece/api-common";
+import { AuthProvider } from "../../application/ports/output/repositories.js";
 
 // ---------------------------------------------------------------------------
 // Utilitaires HTTP (stdlib uniquement)
@@ -111,6 +112,7 @@ export class AuthHandler {
     private readonly revokeApiKey: RevokeApiKey,
     private readonly validateApiKey: ValidateApiKey,
     private readonly rotateApiKey: RotateApiKey,
+    private readonly authProvider: AuthProvider,
   ) {}
 
   /**
@@ -154,6 +156,12 @@ export class AuthHandler {
       // POST /validate-key → ValidateApiKey (endpoint interne pour les gateways)
       if (method === "POST" && pathname === "/validate-key") {
         await this.handleValidateKey(req, res);
+        return;
+      }
+
+      // POST /validate-session → valide un token de session JWT via AuthProvider
+      if (method === "POST" && pathname === "/validate-session") {
+        await this.handleValidateSession(req, res);
         return;
       }
 
@@ -302,5 +310,52 @@ export class AuthHandler {
 
     const context = await this.validateApiKey.execute(body.key);
     sendJson(res, 200, context);
+  }
+
+  /**
+   * POST /validate-session
+   *
+   * Extrait le Bearer token de l'en-tête Authorization (prioritaire) ou du corps JSON
+   * `{ token }` (fallback — compatible avec graphql-api/infrastructure/session-validator.ts).
+   * Appelle authProvider.validateSession(token).
+   *
+   * Réponse 200 : { workspaceId, userId, authMethod: "session" } (ApiContext)
+   * Réponse 401 : token absent ou session invalide/expirée.
+   */
+  private async handleValidateSession(
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> {
+    // 1. Tenter de lire le token depuis l'en-tête Authorization: Bearer <token>
+    let token: string | undefined;
+    const authHeader = req.headers["authorization"];
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      token = authHeader.slice("Bearer ".length).trim();
+    }
+
+    // 2. Fallback : lire { token } depuis le corps JSON (appelé par session-validator.ts)
+    if (!token) {
+      const body = await readBody(req) as { token?: string };
+      token = body.token;
+    }
+
+    if (!token) {
+      sendJson(res, 401, { code: "UNAUTHORIZED", message: "Token de session manquant" });
+      return;
+    }
+
+    const sessionData = await this.authProvider.validateSession(token);
+
+    if (sessionData === null) {
+      sendJson(res, 401, { code: "UNAUTHORIZED", message: "Session invalide ou expirée" });
+      return;
+    }
+
+    // Retourne un ApiContext conforme à ValidateSessionResponse attendu par graphql-api
+    sendJson(res, 200, {
+      workspaceId: "", // TODO(session): récupérer le workspaceId depuis l'userId via UserRepository
+      userId: sessionData.userId,
+      authMethod: "session" as const,
+    });
   }
 }

@@ -10,19 +10,25 @@ import { UserRepository } from "../../application/ports/output/repositories.js";
 import { DrizzleDb } from "./workspace-repository.js";
 
 // ---------------------------------------------------------------------------
-// Mappage entité domaine ↔ lignes 0001_identity.sql
-// Colonnes disponibles : id, workspace_id, email, created_at
+// Mappage entité domaine ↔ lignes SQL (0001 + 0011_identity_schema.sql)
+// Colonnes 0001 : id, workspace_id, email, created_at
+// Colonnes 0011 : name, role
 // ---------------------------------------------------------------------------
 
-/** Ligne telle que retournée par identity.users (colonnes 0001 exactes). */
+/**
+ * Ligne telle que retournée par identity.users.
+ * Colonnes 0001 : id, workspace_id, email, created_at
+ * Colonnes 0011 : name (varchar 255, NOT NULL DEFAULT ''), role (varchar 50, NOT NULL DEFAULT 'member')
+ */
 interface UserRow {
   id: string;
   workspace_id: string;
   email: string;
+  /** name : VARCHAR(255) NOT NULL DEFAULT '' — disponible depuis 0011 */
+  name: string;
+  /** role : VARCHAR(50) NOT NULL DEFAULT 'member' — disponible depuis 0011 */
+  role: string;
   created_at: Date;
-  // Colonnes absentes de 0001 :
-  // name : TODO(schema): aligner migration avant production
-  // role : TODO(schema): aligner migration avant production
 }
 
 function rowToEntity(row: UserRow): User {
@@ -30,10 +36,10 @@ function rowToEntity(row: UserRow): User {
     id: row.id,
     email: row.email,
     workspaceId: row.workspace_id,
-    // name : TODO(schema): absent de 0001 — chaîne vide par défaut
-    name: "",
-    // role : TODO(schema): absent de 0001 — "owner" par défaut (convention : 1er utilisateur = owner)
-    role: "owner",
+    // name : persisté depuis 0011
+    name: row.name,
+    // role : persisté depuis 0011 ; cast sûr car la base enforce 'owner'|'member'
+    role: (row.role === "owner" ? "owner" : "member") as User["role"],
     createdAt: row.created_at,
   };
 }
@@ -51,8 +57,9 @@ export class DrizzleUserRepository implements UserRepository {
     //   id: user.id,
     //   workspace_id: user.workspaceId,
     //   email: user.email,
+    //   name: user.name,
+    //   role: user.role,
     //   created_at: user.createdAt,
-    //   // name, role : TODO(schema) — colonnes absentes de 0001
     // });
     void user;
     throw new Error(
