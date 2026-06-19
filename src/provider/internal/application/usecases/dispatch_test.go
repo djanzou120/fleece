@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"fleece/src/provider/internal/application/ports/output"
 	"fleece/src/provider/internal/domain"
@@ -37,14 +38,21 @@ func (m *mockProvider) GetDeliveryStatus(_ context.Context, _ string) (domain.De
 
 // mockProviderRepository implemente output.ProviderRepository pour les tests.
 type mockProviderRepository struct {
-	saved   []saveCall
-	saveErr error
+	saved         []saveCall
+	saveErr       error
+	statusUpdates []statusUpdate
+	updateErr     error
 }
 
 type saveCall struct {
 	internalId string
 	providerId string
 	externalId string
+}
+
+type statusUpdate struct {
+	externalId string
+	status     string
 }
 
 func (m *mockProviderRepository) Save(_ context.Context, internalId, providerId, externalId string) error {
@@ -57,6 +65,14 @@ func (m *mockProviderRepository) Save(_ context.Context, internalId, providerId,
 
 func (m *mockProviderRepository) FindByInternalID(_ context.Context, _, _ string) (string, error) {
 	return "", nil
+}
+
+func (m *mockProviderRepository) UpdateStatus(_ context.Context, externalId string, status string, _ time.Time) error {
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	m.statusUpdates = append(m.statusUpdates, statusUpdate{externalId, status})
+	return nil
 }
 
 // mockEventPublisher implemente output.EventPublisher pour les tests.

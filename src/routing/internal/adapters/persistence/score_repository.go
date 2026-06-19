@@ -21,9 +21,13 @@ func NewScoreRepository(db *sql.DB) *ScoreRepository {
 
 // ListByChannel retourne tous les scores pour un canal donne.
 // Retourne une slice vide (sans erreur) si aucun score n'est enregistre.
+// Les colonnes avg_latency_ms et country (migration 0013) sont lues.
 func (r *ScoreRepository) ListByChannel(ctx context.Context, channel string) ([]domain.ProviderScore, error) {
+	if r.db == nil {
+		return nil, nil
+	}
 	const query = `
-		SELECT provider, channel, score
+		SELECT provider, channel, score, avg_latency_ms, country
 		  FROM routing.provider_scores
 		 WHERE channel = $1
 	`
@@ -36,7 +40,7 @@ func (r *ScoreRepository) ListByChannel(ctx context.Context, channel string) ([]
 	var result []domain.ProviderScore
 	for rows.Next() {
 		var rec scoreRecord
-		if err := rows.Scan(&rec.Provider, &rec.Channel, &rec.Score); err != nil {
+		if err := rows.Scan(&rec.Provider, &rec.Channel, &rec.Score, &rec.AvgLatencyMs, &rec.Country); err != nil {
 			return nil, fmt.Errorf("persistence: ListByChannel scan: %w", err)
 		}
 		result = append(result, rec.toEntity())
@@ -49,17 +53,25 @@ func (r *ScoreRepository) ListByChannel(ctx context.Context, channel string) ([]
 
 // Upsert insere ou met a jour le score d'un provider sur un canal.
 // Utilise ON CONFLICT (provider, channel) pour eviter les doublons.
+// Les colonnes avg_latency_ms et country (migration 0013) sont incluses.
 func (r *ScoreRepository) Upsert(ctx context.Context, score domain.ProviderScore) error {
+	if r.db == nil {
+		return nil
+	}
 	const query = `
-		INSERT INTO routing.provider_scores (provider, channel, score)
-		VALUES ($1, $2, $3)
+		INSERT INTO routing.provider_scores (provider, channel, score, avg_latency_ms, country)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (provider, channel) DO UPDATE
-		  SET score = EXCLUDED.score
+		  SET score         = EXCLUDED.score,
+		      avg_latency_ms = EXCLUDED.avg_latency_ms,
+		      country       = EXCLUDED.country
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		score.ProviderID,
 		string(score.Channel),
 		score.Score,
+		score.AvgLatencyMs,
+		score.Country,
 	)
 	if err != nil {
 		return fmt.Errorf("persistence: Upsert score provider=%s canal=%s: %w", score.ProviderID, string(score.Channel), err)

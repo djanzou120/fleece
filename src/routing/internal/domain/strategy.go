@@ -11,15 +11,15 @@ const (
 	StrategyLowestCost RoutingStrategy = "lowest_cost"
 	// StrategyHighestDelivery selectionne le provider avec le meilleur taux de delivrabilite.
 	StrategyHighestDelivery RoutingStrategy = "highest_delivery"
-	// StrategyFastest selectionne le provider le plus rapide.
-	// NOTE : le schema 0004 ne stocke pas de metrique de latence ; cette strategie
-	// retombe sur le comportement de HighestDelivery (tri par score decroissant).
-	// TODO(latence): implementer la strategie reelle une fois la colonne avg_latency_ms ajoutee.
+	// StrategyFastest selectionne le provider avec la plus faible latence moyenne (avg_latency_ms ASC).
+	// En cas d'egalite de latence (ou si toutes les latences sont a 0 — absence de donnee),
+	// le tie-break est applique par score decroissant puis par cout croissant puis par identifiant.
 	StrategyFastest RoutingStrategy = "fastest"
 	// StrategyCustom est une strategie personnalisee par workspace.
-	// NOTE : le schema 0004 ne stocke pas de configuration JSON ; cette strategie
-	// retombe actuellement sur HighestDelivery.
-	// TODO(custom): implementer la strategie reelle une fois la colonne config ajoutee.
+	// Elle utilise la liste "preferred_order" de RoutingRule.Config pour classer
+	// les providers dans un ordre explicite. Les providers absents de cette liste
+	// sont apposes en fin de chaine, tries par score decroissant.
+	// Si Config est nil ou ne contient pas "preferred_order", retombe sur HighestDelivery.
 	StrategyCustom RoutingStrategy = "custom"
 )
 

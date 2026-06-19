@@ -43,7 +43,15 @@ function pgSchemaStub(name: string) {
 
 /** Stubs de types de colonnes Drizzle. */
 const uuid = () => ({ _type: "uuid" }) as DrizzleColumn;
-const text = () => ({ _type: "text" }) as DrizzleColumn;
+/**
+ * Stub text() — supporte .array() pour modéliser TEXT[].
+ * TODO: remplacer par `text()` de drizzle-orm/pg-core une fois installé.
+ */
+const text = () => {
+  const col = { _type: "text" } as DrizzleColumn & { array: () => DrizzleColumn };
+  col.array = () => ({ _type: "text[]" }) as DrizzleColumn;
+  return col;
+};
 /** varchar(n) — stub acceptant le nom de colonne et les options (ex. { length: 100 }). */
 const varchar = (_name?: string, _opts?: Record<string, unknown>) =>
   ({ _type: "varchar" }) as DrizzleColumn;
@@ -112,7 +120,7 @@ export const apiKeysTable = identity.table("api_keys", {
   /** prefix : VARCHAR(20) NOT NULL DEFAULT '' — ajouté par 0011_identity_schema.sql */
   prefix: varchar("prefix", { length: 20 }),
   /** permissions : TEXT[] NOT NULL DEFAULT '{}' — ajouté par 0011_identity_schema.sql */
-  permissions: text(), // TEXT[] — stub représenté comme text ; type réel : text().array()
+  permissions: text().array(), // TEXT[] — aligné sur la colonne réelle (migrations 0011)
   /** last_used_at : TIMESTAMPTZ nullable — ajouté par 0011_identity_schema.sql */
   last_used_at: timestamp("last_used_at", { withTimezone: true }),
   /** expires_at : TIMESTAMPTZ nullable — ajouté par 0011_identity_schema.sql */

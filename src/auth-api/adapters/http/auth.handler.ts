@@ -8,6 +8,7 @@ import { CreateApiKey } from "../../application/use-cases/create-api-key.js";
 import { RevokeApiKey } from "../../application/use-cases/revoke-api-key.js";
 import { ValidateApiKey } from "../../application/use-cases/validate-api-key.js";
 import { RotateApiKey } from "../../application/use-cases/rotate-api-key.js";
+import { ValidateSession } from "../../application/use-cases/validate-session.js";
 import {
   WorkspaceNotFoundError,
   ApiKeyNotFoundError,
@@ -16,7 +17,6 @@ import {
   UnauthorizedError,
 } from "../../domain/errors.js";
 import { ApiError } from "@fleece/api-common";
-import { AuthProvider } from "../../application/ports/output/repositories.js";
 
 // ---------------------------------------------------------------------------
 // Utilitaires HTTP (stdlib uniquement)
@@ -64,7 +64,7 @@ function errorToStatus(err: unknown): { status: number; code: string; message: s
     return { status: 401, code: "UNAUTHORIZED", message: err.message };
   }
   if (err instanceof UnauthorizedError) {
-    return { status: 403, code: "FORBIDDEN", message: err.message };
+    return { status: 401, code: "UNAUTHORIZED", message: err.message };
   }
   if (err instanceof ApiError) {
     return { status: err.statusHint, code: err.code, message: err.message };
@@ -112,7 +112,7 @@ export class AuthHandler {
     private readonly revokeApiKey: RevokeApiKey,
     private readonly validateApiKey: ValidateApiKey,
     private readonly rotateApiKey: RotateApiKey,
-    private readonly authProvider: AuthProvider,
+    private readonly validateSession: ValidateSession,
   ) {}
 
   /**
@@ -317,10 +317,10 @@ export class AuthHandler {
    *
    * Extrait le Bearer token de l'en-tête Authorization (prioritaire) ou du corps JSON
    * `{ token }` (fallback — compatible avec graphql-api/infrastructure/session-validator.ts).
-   * Appelle authProvider.validateSession(token).
+   * Délègue ENTIÈREMENT au use case ValidateSession.
    *
-   * Réponse 200 : { workspaceId, userId, authMethod: "session" } (ApiContext)
-   * Réponse 401 : token absent ou session invalide/expirée.
+   * Réponse 200 : ApiContext { workspaceId, userId, authMethod: "session" }
+   * Réponse 401 : token absent, session invalide/expirée, ou utilisateur introuvable.
    */
   private async handleValidateSession(
     req: IncomingMessage,
@@ -344,18 +344,17 @@ export class AuthHandler {
       return;
     }
 
-    const sessionData = await this.authProvider.validateSession(token);
-
-    if (sessionData === null) {
-      sendJson(res, 401, { code: "UNAUTHORIZED", message: "Session invalide ou expirée" });
-      return;
+    // 3. Délégation totale au use case (résout workspaceId via UserRepository)
+    //    UnauthorizedError levée par le use case → 401 (session invalide ou orpheline)
+    try {
+      const context = await this.validateSession.execute(token);
+      sendJson(res, 200, context);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        sendJson(res, 401, { code: "UNAUTHORIZED", message: err.message });
+      } else {
+        throw err; // remonté au handler principal pour l'errorToStatus générique
+      }
     }
-
-    // Retourne un ApiContext conforme à ValidateSessionResponse attendu par graphql-api
-    sendJson(res, 200, {
-      workspaceId: "", // TODO(session): récupérer le workspaceId depuis l'userId via UserRepository
-      userId: sessionData.userId,
-      authMethod: "session" as const,
-    });
   }
 }

@@ -5,7 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
+
+	"fleece/src/provider/internal/application/ports/output"
 )
+
+// Assertion de conformite a la compilation : ProviderRepository doit implémenter output.ProviderRepository.
+// Couche 3 → couche 2 : sens autorise (vers l'interieur).
+var _ output.ProviderRepository = (*ProviderRepository)(nil)
 
 // ProviderRepository implemente output.ProviderRepository via *sql.DB.
 // Il n'accede qu'au schema "provider" (table provider.provider_messages).
@@ -19,15 +26,16 @@ func NewProviderRepository(db *sql.DB) *ProviderRepository {
 }
 
 // Save insere ou met a jour un enregistrement dans provider.provider_messages.
-// Seules les colonnes du schema 0005 sont ecrites : internal_id, provider_id, external_id.
-// ON CONFLICT effectue un UPDATE de external_id.
+// Colonnes ecrites : internal_id, provider_id, external_id, status (initialise a "pending"),
+// updated_at (NULL a la creation, renseignee lors du premier DLR via UpdateStatus).
+// ON CONFLICT effectue un UPDATE de external_id (status et updated_at sont preserves).
 func (r *ProviderRepository) Save(ctx context.Context, internalId, providerId, externalId string) error {
 	if r.db == nil {
 		return fmt.Errorf("persistence: Save: base de donnees non initialisee")
 	}
 	const query = `
-		INSERT INTO provider.provider_messages (internal_id, provider_id, external_id)
-		VALUES ($1::uuid, $2, $3)
+		INSERT INTO provider.provider_messages (internal_id, provider_id, external_id, status, updated_at)
+		VALUES ($1::uuid, $2, $3, 'pending', NULL)
 		ON CONFLICT (internal_id, provider_id) DO UPDATE
 		  SET external_id = EXCLUDED.external_id
 	`
@@ -61,4 +69,25 @@ func (r *ProviderRepository) FindByInternalID(ctx context.Context, internalId, p
 			internalId, providerId, err)
 	}
 	return rec.ExternalID, nil
+}
+
+// UpdateStatus met a jour le status et le updated_at d'un enregistrement
+// identifie par son external_id (identifiant fournisseur, connu du DLR).
+// Retourne nil sans erreur si aucune ligne n'est trouvee (idempotent).
+func (r *ProviderRepository) UpdateStatus(ctx context.Context, externalId string, status string, updatedAt time.Time) error {
+	if r.db == nil {
+		return nil
+	}
+	const query = `
+		UPDATE provider.provider_messages
+		   SET status     = $2,
+		       updated_at = $3
+		 WHERE external_id = $1
+	`
+	_, err := r.db.ExecContext(ctx, query, externalId, status, updatedAt)
+	if err != nil {
+		return fmt.Errorf("persistence: UpdateStatus (external=%s status=%s): %w",
+			externalId, status, err)
+	}
+	return nil
 }

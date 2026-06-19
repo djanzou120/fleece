@@ -22,15 +22,20 @@ func NewRuleRepository(db *sql.DB) *RuleRepository {
 
 // GetByWorkspace retourne la regle de routage d'un workspace.
 // Retourne domain.ErrRuleNotFound si aucune regle n'est configuree.
+// Les colonnes channel et config (migration 0013) sont lues.
+// config est JSONB nullable : NULL est decode en Config nil dans l'entite domaine.
 func (r *RuleRepository) GetByWorkspace(ctx context.Context, workspaceID string) (domain.RoutingRule, error) {
+	if r.db == nil {
+		return domain.RoutingRule{}, fmt.Errorf("persistence: GetByWorkspace %s: %w", workspaceID, domain.ErrRuleNotFound)
+	}
 	const query = `
-		SELECT workspace_id, strategy
+		SELECT workspace_id, strategy, channel, config
 		  FROM routing.routing_rules
 		 WHERE workspace_id = $1
 	`
 	row := r.db.QueryRowContext(ctx, query, workspaceID)
 	var rec ruleRecord
-	err := row.Scan(&rec.WorkspaceID, &rec.Strategy)
+	err := row.Scan(&rec.WorkspaceID, &rec.Strategy, &rec.Channel, &rec.ConfigRaw)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.RoutingRule{}, fmt.Errorf("persistence: GetByWorkspace %s: %w", workspaceID, domain.ErrRuleNotFound)

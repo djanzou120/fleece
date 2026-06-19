@@ -11,6 +11,7 @@ import { BetterAuthProvider } from "./adapters/auth/better-auth.adapter.js";
 import { CreateWorkspace } from "./application/use-cases/create-workspace.js";
 import { CreateApiKey } from "./application/use-cases/create-api-key.js";
 import { ValidateApiKey } from "./application/use-cases/validate-api-key.js";
+import { ValidateSession } from "./application/use-cases/validate-session.js";
 import { RevokeApiKey } from "./application/use-cases/revoke-api-key.js";
 import { RotateApiKey } from "./application/use-cases/rotate-api-key.js";
 import { AuthHandler } from "./adapters/http/auth.handler.js";
@@ -51,11 +52,12 @@ async function main(): Promise<void> {
   const createWorkspace = new CreateWorkspace(workspaceRepo, userRepo);
   const createApiKey = new CreateApiKey(apiKeyRepo);
   const validateApiKey = new ValidateApiKey(apiKeyRepo);
+  const validateSession = new ValidateSession(authProvider, userRepo);
   const revokeApiKey = new RevokeApiKey(apiKeyRepo);
   const rotateApiKey = new RotateApiKey(apiKeyRepo);
 
   // -------------------------------------------------------------------------
-  // Couche 3 — Handler HTTP (authProvider injecté pour POST /validate-session)
+  // Couche 3 — Handler HTTP
   // -------------------------------------------------------------------------
 
   const handler = new AuthHandler(
@@ -64,7 +66,7 @@ async function main(): Promise<void> {
     revokeApiKey,
     validateApiKey,
     rotateApiKey,
-    authProvider,
+    validateSession,
   );
 
   // -------------------------------------------------------------------------

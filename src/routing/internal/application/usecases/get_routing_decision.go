@@ -25,8 +25,10 @@ type GetRoutingDecision struct {
 // Ce choix est documente ici : retourner le cout unitaire preserve la flexibilite
 // (le Messaging Service connait le nombre reel de destinataires apres expansion).
 func (uc GetRoutingDecision) Execute(ctx context.Context, workspaceID, channel, country string, recipientCount int) (domain.RoutingDecision, error) {
-	// 1. Charger la strategie du workspace (fallback sur HighestDelivery si absente).
-	strategy := domain.StrategyHighestDelivery
+	// 1. Charger la regle du workspace (fallback sur HighestDelivery si absente).
+	// La regle complete (avec Config) est transmise au domaine pour que la strategie
+	// Custom puisse appliquer la configuration personnalisee.
+	activeRule := domain.RoutingRule{Strategy: domain.StrategyHighestDelivery}
 	rule, err := uc.Rules.GetByWorkspace(ctx, workspaceID)
 	if err != nil {
 		if !errors.Is(err, domain.ErrRuleNotFound) {
@@ -34,7 +36,7 @@ func (uc GetRoutingDecision) Execute(ctx context.Context, workspaceID, channel, 
 		}
 		// ErrRuleNotFound : comportement par defaut (HighestDelivery), pas d'erreur.
 	} else {
-		strategy = rule.Strategy
+		activeRule = rule
 	}
 
 	// 2. Charger les tarifs pour le canal et le pays.
@@ -49,8 +51,8 @@ func (uc GetRoutingDecision) Execute(ctx context.Context, workspaceID, channel, 
 		return domain.RoutingDecision{}, fmt.Errorf("get_routing: charger scores canal=%s: %w", channel, err)
 	}
 
-	// 4. Appeler la logique pure du domaine.
-	decision, err := domain.SelectProvider(pricing, scores, strategy)
+	// 4. Appeler la logique pure du domaine avec la regle complete.
+	decision, err := domain.SelectProvider(pricing, scores, activeRule)
 	if err != nil {
 		return domain.RoutingDecision{}, fmt.Errorf("get_routing: selection provider: %w", err)
 	}

@@ -97,6 +97,7 @@ func main() {
 	}
 	handleDLRUC := &usecases.HandleDLR{
 		Publisher: eventPub,
+		Repo:      providerRepo,
 	}
 
 	// --- Couche 3 : adapter HTTP (driving) ---

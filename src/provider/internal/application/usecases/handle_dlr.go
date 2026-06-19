@@ -3,27 +3,30 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"fleece/src/provider/internal/application/ports/output"
 	"fleece/src/provider/internal/domain"
 )
 
 // HandleDLR traite un delivery receipt (DLR) entrant.
-//
-// TODO(persistence): le schema 0005 ne contient pas de colonne status dans
-// provider.provider_messages. Le statut n'est donc pas persiste en base.
-// Une migration future devra ajouter cette colonne. En attendant, le statut
-// est uniquement communique via l'evenement publie.
+// Il publie l'evenement de domaine correspondant et persiste le statut en base.
 type HandleDLR struct {
 	// Publisher publie les evenements provider.delivered / provider.failed.
 	Publisher output.EventPublisher
+
+	// Repo persiste le statut de livraison dans provider.provider_messages.
+	// Identifie la ligne par son external_id (identifiant fournisseur).
+	Repo output.ProviderRepository
 }
 
-// Execute valide la transition de statut et publie l'evenement correspondant.
+// Execute valide la transition de statut, publie l'evenement correspondant
+// et persiste le statut DLR dans provider.provider_messages.
 //
-// Transitions autorisees depuis le DLR entrant :
-//   - Delivered → publie "provider.delivered"
-//   - Failed / Rejected → publie "provider.failed"
+// Mapping statut DLR -> string persiste :
+//   - domain.StatusDelivered → "delivered"  (publie "provider.delivered")
+//   - domain.StatusFailed    → "failed"     (publie "provider.failed")
+//   - domain.StatusRejected  → "rejected"   (publie "provider.failed")
 func (uc *HandleDLR) Execute(ctx context.Context, externalId string, status domain.DeliveryStatus) error {
 	if externalId == "" {
 		return fmt.Errorf("handle_dlr: externalId est requis")
@@ -45,6 +48,19 @@ func (uc *HandleDLR) Execute(ctx context.Context, externalId string, status doma
 	default:
 		// Statut inattendu dans un DLR.
 		return fmt.Errorf("handle_dlr: statut DLR invalide: %s", status)
+	}
+
+	// Persister le statut DLR en base (best-effort : une erreur de persistance
+	// ne doit pas invalider le traitement du DLR deja publie).
+	if uc.Repo != nil {
+		if err := uc.Repo.UpdateStatus(ctx, externalId, string(status), time.Now()); err != nil {
+			// Logue via evenement pour ne pas perdre l'information sans bloquer.
+			_ = uc.Publisher.Publish(ctx, "provider.dlr_persist_error", map[string]string{
+				"external_id": externalId,
+				"status":      string(status),
+				"error":       err.Error(),
+			})
+		}
 	}
 
 	return nil
