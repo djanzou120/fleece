@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;450;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:#0a0a0a}
+  [data-theme="dark"]{
+    --bg:#0a0a0a;--bg-elev:#0f0f0f;--surface:#141414;--surface-2:#1a1a1a;
+    --border:#242424;--border-soft:#1b1b1b;
+    --text:#fafafa;--text-2:#9b9b9b;--text-3:#646464;
+    --accent:#27cf7d;--accent-2:#1fa863;--accent-soft:rgba(39,207,125,0.12);--accent-text:#3ddb8c;
+    --danger:#f06363;--danger-soft:rgba(240,99,99,0.12);
+    --warn:#e3a93a;--warn-soft:rgba(227,169,58,0.12);
+    --info:#5e9bf0;--info-soft:rgba(94,155,240,0.12);
+    --shadow:0 1px 2px rgba(0,0,0,0.4);
+  }
+  [data-theme="light"]{
+    --bg:#f6f5f2;--bg-elev:#ffffff;--surface:#ffffff;--surface-2:#faf9f6;
+    --border:#e7e4de;--border-soft:#efece6;
+    --text:#161512;--text-2:#5f5d57;--text-3:#928f87;
+    --accent:#0f9d5f;--accent-2:#0c8650;--accent-soft:rgba(15,157,95,0.10);--accent-text:#0b8351;
+    --danger:#cf4646;--danger-soft:rgba(207,70,70,0.09);
+    --warn:#b6800f;--warn-soft:rgba(182,128,15,0.10);
+    --info:#2f6fd0;--info-soft:rgba(47,111,208,0.09);
+    --shadow:0 1px 2px rgba(20,18,12,0.05);
+  }
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::selection{background:var(--accent-soft)}
+  @keyframes flc-fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+
+<div ref="{{ rootRef }}" data-theme="dark" style="font-family:'Geist',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;font-size:14px;-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside style="width:248px;flex:none;background:var(--bg-elev);border-right:1px solid var(--border);min-height:100vh;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;">
+    <!-- workspace switcher -->
+    <div style="padding:16px 14px 12px;">
+      <button style="width:100%;display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:10px;border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text);text-align:left;" style-hover="border-color:var(--text-3)">
+        <span style="width:28px;height:28px;flex:none;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#06210f;font-weight:700;font-size:15px;">F</span>
+        <span style="display:flex;flex-direction:column;line-height:1.25;overflow:hidden;">
+          <span style="font-weight:600;font-size:13px;">Fleece</span>
+          <span style="font-size:11px;color:var(--text-3);">Acme Corp · Pro</span>
+        </span>
+        <span style="margin-left:auto;color:var(--text-3);font-size:12px;font-family:'Geist Mono',monospace;">⇅</span>
+      </button>
+    </div>
+
+    <nav style="padding:4px 10px;display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex:1;">
+      <div style="font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-3);padding:12px 10px 6px;" data-en="Workspace">Espace de travail</div>
+
+      <button onClick="{{ goOverview }}" style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;border:none;background:none;cursor:pointer;font-size:13.5px;font-family:inherit;text-align:left;width:100%;white-space:nowrap;{{ navOverview }}" style-hover="background:var(--surface-2)">
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:.85;">◈</span><span data-en="Overview">Vue d'ensemble</span>
+      </button>
+      <button onClick="{{ goMessages }}" style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;border:none;background:none;cursor:pointer;font-size:13.5px;font-family:inherit;text-align:left;width:100%;white-space:nowrap;{{ navMessages }}" style-hover="background:var(--surface-2)">
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:.85;">✉</span><span data-en="Messages">Messages</span>
+        <span style="margin-left:auto;font-size:10.5px;font-family:'Geist Mono',monospace;color:var(--text-3);background:var(--surface-2);padding:1px 6px;border-radius:6px;">1.2M</span>
+      </button>
+      <button onClick="{{ goCampaigns }}" style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;border:none;background:none;cursor:pointer;font-size:13.5px;font-family:inherit;text-align:left;width:100%;white-space:nowrap;{{ navCampaigns }}" style-hover="background:var(--surface-2)">
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:.85;">◐</span><span data-en="Campaigns">Campagnes</span>
+        <span style="margin-left:auto;font-size:10px;font-family:'Geist Mono',monospace;color:var(--info);background:var(--info-soft);padding:1px 6px;border-radius:6px;">3</span>
+      </button>
+
+      <div style="font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-3);padding:14px 10px 6px;" data-en="Developers">Développeurs</div>
+      <button onClick="{{ goApi }}" style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;border:none;background:none;cursor:pointer;font-size:13.5px;font-family:inherit;text-align:left;width:100%;white-space:nowrap;{{ navApi }}" style-hover="background:var(--surface-2)">
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:.85;">⌘</span><span data-en="API & Webhooks">API & Webhooks</span>
+      </button>
+
+      <div style="font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-3);padding:14px 10px 6px;" data-en="Billing">Facturation</div>
+      <button onClick="{{ goWallet }}" style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;border:none;background:none;cursor:pointer;font-size:13.5px;font-family:inherit;text-align:left;width:100%;white-space:nowrap;{{ navWallet }}" style-hover="background:var(--surface-2)">
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:.85;">◷</span><span data-en="Wallet">Wallet</span>
+        <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;color:var(--accent-text);">$4.8k</span>
+      </button>
+
+      <div style="font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-3);padding:14px 10px 6px;display:flex;align-items:center;gap:7px;"><span data-en="Roadmap">Roadmap</span><span style="height:1px;flex:1;background:var(--border-soft);"></span></div>
+      <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;font-size:13.5px;color:var(--text-3);cursor:not-allowed;white-space:nowrap;">
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:.6;">⇄</span><span data-en="Routing">Routage</span><span style="margin-left:auto;font-size:9.5px;font-family:'Geist Mono',monospace;color:var(--text-3);border:1px solid var(--border);padding:1px 5px;border-radius:5px;">V1</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;font-size:13.5px;color:var(--text-3);cursor:not-allowed;white-space:nowrap;">
+        <span style="font-family:'Geist Mono',monospace;font-size:13px;opacity:.6;">⊕</span><span data-en="Contact Intelligence">Contact Intelligence</span><span style="margin-left:auto;font-size:9.5px;font-family:'Geist Mono',monospace;color:var(--text-3);border:1px solid var(--border);padding:1px 5px;border-radius:5px;">V1</span>
+      </div>
+    </nav>
+
+    <!-- user -->
+    <div style="padding:10px;border-top:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:9px;cursor:pointer;" style-hover="background:var(--surface-2)">
+        <span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#27cf7d,#1b7e9c);flex:none;"></span>
+        <span style="display:flex;flex-direction:column;line-height:1.25;overflow:hidden;">
+          <span style="font-size:12.5px;font-weight:500;">Awa Diop</span>
+          <span style="font-size:11px;color:var(--text-3);">awa@acme.io</span>
+        </span>
+        <span style="margin-left:auto;color:var(--text-3);">···</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+
+    <!-- topbar -->
+    <header style="height:56px;flex:none;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 22px;position:sticky;top:0;background:color-mix(in srgb, var(--bg) 82%, transparent);backdrop-filter:blur(10px);z-index:20;">
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-3);font-family:'Geist Mono',monospace;">
+        <span>Fleece</span><span style="opacity:.5">/</span><span style="color:var(--text);white-space:nowrap;">{{ crumb }}</span>
+      </div>
+      <div style="margin-left:14px;flex:1;max-width:340px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:6px 11px;color:var(--text-3);">
+        <span style="font-size:13px;">⌕</span>
+        <input placeholder="Rechercher un message, contact, clé…" style="border:none;background:none;outline:none;color:var(--text);font-family:inherit;font-size:13px;flex:1;width:100%;"/>
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:0 5px;">⌘K</span>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+        <button onClick="{{ toggleLang }}" style="height:32px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer;font-family:'Geist Mono',monospace;font-size:12px;font-weight:500;" style-hover="color:var(--text)">{{ langLabel }}</button>
+        <button onClick="{{ toggleTheme }}" style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer;" style-hover="color:var(--text)">{{ themeIcon }}</button>
+        <a href="#" style="height:32px;display:flex;align-items:center;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);text-decoration:none;font-size:13px;" style-hover="color:var(--text)" data-en="Docs">Docs</a>
+        <button style="height:32px;display:flex;align-items:center;gap:7px;padding:0 13px;border-radius:8px;border:none;background:var(--accent);color:#06210f;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;white-space:nowrap;" style-hover="background:var(--accent-2)">+ <span data-en="New message">Nouveau message</span></button>
+      </div>
+    </header>
+
+    <main style="flex:1;overflow-y:auto;padding:26px 30px 64px;">
+
+      <!-- ====================== OVERVIEW ====================== -->
+      <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+        <div style="max-width:1240px;margin:0 auto;animation:flc-fade .3s ease;">
+          <!-- header row -->
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap;">
+            <div>
+              <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em;" data-en="Overview">Vue d'ensemble</h1>
+              <p style="margin:5px 0 0;color:var(--text-2);font-size:13.5px;" data-en="Your messaging across every channel — last 30 days.">Votre messagerie sur tous les canaux — 30 derniers jours.</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="display:flex;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:3px;">
+                <button onClick="{{ setVarA }}" style="padding:5px 13px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:500;{{ segA }}" data-en="Executive">Exécutif</button>
+                <button onClick="{{ setVarB }}" style="padding:5px 13px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:500;{{ segB }}" data-en="Operations">Opérations</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:6px 12px;font-size:12.5px;color:var(--text-2);font-family:'Geist Mono',monospace;">30j ▾</div>
+            </div>
+          </div>
+
+          <!-- ---------- VARIANT A : EXECUTIVE ---------- -->
+          <sc-if value="{{ isVarA }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <!-- KPI cards -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px;">
+              <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 16px 12px;box-shadow:var(--shadow);">
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <span style="font-size:12.5px;color:var(--text-2);">{{ k.label }}</span>
+                    <span style="font-size:11px;font-family:'Geist Mono',monospace;font-weight:600;padding:1px 7px;border-radius:20px;color:{{ k.deltaColor }};background:{{ k.deltaBg }};">{{ k.delta }}</span>
+                  </div>
+                  <div style="font-size:27px;font-weight:600;letter-spacing:-0.02em;margin:9px 0 2px;font-variant-numeric:tabular-nums;">{{ k.value }}</div>
+                  <div style="height:34px;margin-top:6px;">{{ k.spark }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <!-- main chart + donut -->
+            <div style="display:grid;grid-template-columns:2.1fr 1fr;gap:14px;margin-bottom:14px;">
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 18px 10px;box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                  <div>
+                    <div style="font-size:14px;font-weight:600;" data-en="Messages sent">Messages envoyés</div>
+                    <div style="font-size:12px;color:var(--text-3);margin-top:2px;font-family:'Geist Mono',monospace;">1 248 392 · <span style="color:var(--accent-text)">96,8% délivrés</span></div>
+                  </div>
+                  <div style="display:flex;gap:14px;font-size:12px;color:var(--text-2);">
+                    <span style="display:flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:2px;background:var(--accent);"></span>Volume</span>
+                  </div>
+                </div>
+                <div style="height:240px;">{{ areaMsg }}</div>
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-3);font-family:'Geist Mono',monospace;padding:4px 2px 2px;">
+                  <span>23 mai</span><span>30 mai</span><span>06 juin</span><span>13 juin</span><span>20 juin</span>
+                </div>
+              </div>
+
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;">
+                <div style="font-size:14px;font-weight:600;margin-bottom:14px;" data-en="Channel split">Répartition par canal</div>
+                <div style="display:flex;align-items:center;gap:18px;">
+                  <div style="position:relative;flex:none;">{{ donutEl }}
+                    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                      <span style="font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;">1.2M</span>
+                      <span style="font-size:10px;color:var(--text-3);" data-en="messages">messages</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:11px;flex:1;">
+                    <sc-for list="{{ channels }}" as="c" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;gap:9px;font-size:12.5px;">
+                        <span style="width:9px;height:9px;border-radius:3px;background:{{ c.color }};flex:none;"></span>
+                        <span style="flex:1;">{{ c.name }}</span>
+                        <span style="font-family:'Geist Mono',monospace;font-weight:600;">{{ c.pct }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="margin-top:auto;padding-top:16px;border-top:1px solid var(--border-soft);font-size:11.5px;color:var(--text-3);line-height:1.5;" data-en="Auto-routing picked the cheapest channel for 71% of sends.">Le routage automatique a choisi le canal le moins cher pour 71% des envois.</div>
+              </div>
+            </div>
+
+            <!-- country bars + activity -->
+            <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px;">
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                  <div style="font-size:14px;font-weight:600;" data-en="Deliverability by country">Délivrabilité par pays</div>
+                  <span style="font-size:11.5px;color:var(--text-3);font-family:'Geist Mono',monospace;">Phase 1</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:15px;">
+                  <sc-for list="{{ countries }}" as="c" hint-placeholder-count="4">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                        <span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;background:var(--surface-2);border:1px solid var(--border);padding:1px 6px;border-radius:5px;">{{ c.code }}</span>
+                        <span style="font-size:13px;">{{ c.name }}</span>
+                        <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-2);">{{ c.vol }}</span>
+                        <span style="font-family:'Geist Mono',monospace;font-size:12.5px;font-weight:600;width:48px;text-align:right;">{{ c.rate }}</span>
+                      </div>
+                      <div style="height:7px;border-radius:6px;background:var(--surface-2);overflow:hidden;">
+                        <div style="height:100%;border-radius:6px;background:var(--accent);width:{{ c.w }};"></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                  <div style="font-size:14px;font-weight:600;" data-en="Live activity">Activité en direct</div>
+                  <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent-text);font-family:'Geist Mono',monospace;"><span style="width:7px;height:7px;border-radius:50%;background:var(--accent);"></span>live</span>
+                </div>
+                <div style="display:flex;flex-direction:column;">
+                  <sc-for list="{{ activity }}" as="a" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:11px;padding:8px 0;border-bottom:1px solid var(--border-soft);">
+                      <span style="width:7px;height:7px;border-radius:50%;background:{{ a.color }};flex:none;"></span>
+                      <span style="font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--text-2);">{{ a.event }}</span>
+                      <span style="font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ a.detail }}</span>
+                      <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-3);flex:none;">{{ a.time }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+          </sc-if>
+
+          <!-- ---------- VARIANT B : OPERATIONS ---------- -->
+          <sc-if value="{{ isVarB }}" hint-placeholder-val="{{ false }}">
+          <div>
+            <!-- compact metric strip -->
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:14px;">
+              <sc-for list="{{ stripMetrics }}" as="m" hint-placeholder-count="6">
+                <div style="background:var(--surface);padding:14px 15px;">
+                  <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:7px;">{{ m.label }}</div>
+                  <div style="font-size:19px;font-weight:600;font-family:'Geist Mono',monospace;letter-spacing:-0.01em;">{{ m.value }}</div>
+                  <div style="font-size:11px;margin-top:4px;color:{{ m.color }};font-family:'Geist Mono',monospace;">{{ m.sub }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <!-- throughput + fallback funnel -->
+            <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:14px;margin-bottom:14px;">
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 18px 10px;box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <div style="font-size:14px;font-weight:600;" data-en="Throughput (msgs / hour)">Débit (msgs / heure)</div>
+                  <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-2);">pic 1 842/min</span>
+                </div>
+                <div style="height:210px;">{{ throughputEl }}</div>
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-3);font-family:'Geist Mono',monospace;padding-top:4px;">
+                  <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+                </div>
+              </div>
+
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow);">
+                <div style="font-size:14px;font-weight:600;margin-bottom:4px;" data-en="Fallback cascade">Cascade de fallback</div>
+                <div style="font-size:11.5px;color:var(--text-3);margin-bottom:16px;" data-en="WhatsApp → SMS → Telegram">WhatsApp → SMS → Telegram</div>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="4">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:12.5px;">
+                        <span style="width:9px;height:9px;border-radius:3px;background:{{ f.color }};flex:none;"></span>
+                        <span style="white-space:nowrap;">{{ f.label }}</span>
+                        <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-weight:600;">{{ f.value }}</span>
+                        <span style="font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-3);width:42px;text-align:right;">{{ f.pct }}</span>
+                      </div>
+                      <div style="height:9px;border-radius:5px;background:var(--surface-2);overflow:hidden;">
+                        <div style="height:100%;border-radius:5px;background:{{ f.color }};width:{{ f.w }};opacity:.85;"></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft);display:flex;justify-content:space-between;font-size:12px;">
+                  <span style="color:var(--text-2);" data-en="Recovered by fallback">Récupérés par fallback</span>
+                  <span style="font-family:'Geist Mono',monospace;font-weight:600;color:var(--accent-text);">+163k</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- provider health table -->
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;">
+              <div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
+                <div style="font-size:14px;font-weight:600;" data-en="Provider health">Santé des fournisseurs</div>
+                <span style="font-size:11.5px;color:var(--text-3);font-family:'Geist Mono',monospace;" data-en="9 active providers">9 fournisseurs actifs</span>
+              </div>
+              <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px;">
+                  <thead>
+                    <tr style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;text-align:left;">
+                      <th style="padding:10px 18px;font-weight:500;" data-en="Provider">Fournisseur</th>
+                      <th style="padding:10px;font-weight:500;" data-en="Channel">Canal</th>
+                      <th style="padding:10px;font-weight:500;" data-en="Status">Statut</th>
+                      <th style="padding:10px;font-weight:500;text-align:right;" data-en="Delivery">Délivrabilité</th>
+                      <th style="padding:10px;font-weight:500;text-align:right;" data-en="Latency P95">Latence P95</th>
+                      <th style="padding:10px 18px;font-weight:500;text-align:right;" data-en="Cost/msg">Coût/msg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <sc-for list="{{ providers }}" as="p" hint-placeholder-count="5">
+                      <tr style="border-top:1px solid var(--border-soft);">
+                        <td style="padding:11px 18px;font-weight:500;">{{ p.name }}</td>
+                        <td style="padding:11px;color:var(--text-2);">{{ p.channel }}</td>
+                        <td style="padding:11px;"><span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:{{ p.statusColor }};"><span style="width:6px;height:6px;border-radius:50%;background:{{ p.statusColor }};"></span>{{ p.status }}</span></td>
+                        <td style="padding:11px;text-align:right;font-family:'Geist Mono',monospace;">{{ p.delivery }}</td>
+                        <td style="padding:11px;text-align:right;font-family:'Geist Mono',monospace;color:var(--text-2);">{{ p.latency }}</td>
+                        <td style="padding:11px 18px;text-align:right;font-family:'Geist Mono',monospace;">{{ p.cost }}</td>
+                      </tr>
+                    </sc-for>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <!-- ====================== CAMPAIGNS ====================== -->
+      <sc-if value="{{ isCampaigns }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1240px;margin:0 auto;animation:flc-fade .3s ease;">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+            <div>
+              <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em;" data-en="Campaigns">Campagnes</h1>
+              <p style="margin:5px 0 0;color:var(--text-2);font-size:13.5px;" data-en="Create, schedule and track mass campaigns across channels.">Créez, planifiez et suivez vos campagnes multicanal.</p>
+            </div>
+            <div style="display:flex;gap:9px;">
+              <button style="height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:13px;" style-hover="color:var(--text)" data-en="Templates">Modèles</button>
+              <button style="height:34px;padding:0 14px;border-radius:8px;border:none;background:var(--accent);color:#06210f;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;white-space:nowrap;">+ <span data-en="New campaign">Nouvelle campagne</span></button>
+            </div>
+          </div>
+
+          <!-- KPI strip -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px;">
+            <sc-for list="{{ campaignKpis }}" as="k" hint-placeholder-count="4">
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <span style="font-size:12.5px;color:var(--text-2);white-space:nowrap;">{{ k.label }}</span>
+                  <span style="font-size:11px;font-family:'Geist Mono',monospace;font-weight:600;padding:1px 7px;border-radius:20px;white-space:nowrap;color:{{ k.dc }};background:{{ k.db }};">{{ k.delta }}</span>
+                </div>
+                <div style="font-size:25px;font-weight:600;letter-spacing:-0.02em;margin-top:9px;font-variant-numeric:tabular-nums;">{{ k.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <!-- perf + scheduled -->
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 18px 10px;box-shadow:var(--shadow);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <div style="font-size:14px;font-weight:600;" data-en="Sends per day">Envois par jour</div>
+                  <div style="font-size:12px;color:var(--text-3);margin-top:2px;font-family:'Geist Mono',monospace;">312 480 <span data-en="recipients · 30d">destinataires · 30j</span></div>
+                </div>
+                <div style="display:flex;gap:14px;font-size:12px;color:var(--text-2);">
+                  <span style="display:flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:2px;background:var(--accent);"></span><span data-en="Sent">Envois</span></span>
+                </div>
+              </div>
+              <div style="height:178px;">{{ areaCampaign }}</div>
+              <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-3);font-family:'Geist Mono',monospace;padding:4px 2px 2px;">
+                <span>23 mai</span><span>30 mai</span><span>06 juin</span><span>13 juin</span><span>20 juin</span>
+              </div>
+            </div>
+
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <div style="font-size:14px;font-weight:600;" data-en="Scheduled">Programmées</div>
+                <span style="font-size:11px;color:var(--warn);font-family:'Geist Mono',monospace;background:var(--warn-soft);padding:1px 7px;border-radius:20px;">3</span>
+              </div>
+              <div style="display:flex;flex-direction:column;">
+                <sc-for list="{{ scheduled }}" as="x" hint-placeholder-count="3">
+                  <div style="display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--border-soft);">
+                    <span style="width:30px;height:30px;flex:none;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Geist Mono',monospace;color:var(--text-2);font-size:13px;">◷</span>
+                    <div style="display:flex;flex-direction:column;line-height:1.35;min-width:0;">
+                      <span style="font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ x.name }}</span>
+                      <span style="font-size:11px;color:var(--text-3);font-family:'Geist Mono',monospace;">{{ x.when }} · {{ x.ch }}</span>
+                    </div>
+                    <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-2);flex:none;white-space:nowrap;">{{ x.n }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <!-- campaigns table -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;">
+            <div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
+              <div style="font-size:15px;font-weight:600;" data-en="All campaigns">Toutes les campagnes</div>
+              <div style="display:flex;gap:7px;">
+                <span style="font-size:12px;color:var(--accent-text);background:var(--accent-soft);padding:3px 11px;border-radius:7px;" data-en="All">Toutes</span>
+                <span style="font-size:12px;color:var(--text-2);padding:3px 11px;border-radius:7px;cursor:pointer;" data-en="Active">En cours</span>
+                <span style="font-size:12px;color:var(--text-2);padding:3px 11px;border-radius:7px;cursor:pointer;" data-en="Drafts">Brouillons</span>
+              </div>
+            </div>
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:880px;">
+                <thead>
+                  <tr style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;text-align:left;">
+                    <th style="padding:11px 18px;font-weight:500;" data-en="Campaign">Campagne</th>
+                    <th style="padding:11px;font-weight:500;" data-en="Channel">Canal</th>
+                    <th style="padding:11px;font-weight:500;" data-en="Status">Statut</th>
+                    <th style="padding:11px;font-weight:500;text-align:right;" data-en="Recipients">Destinataires</th>
+                    <th style="padding:11px;font-weight:500;width:150px;" data-en="Progress">Progression</th>
+                    <th style="padding:11px;font-weight:500;text-align:right;" data-en="Delivered">Délivrés</th>
+                    <th style="padding:11px;font-weight:500;text-align:right;" data-en="Date">Date</th>
+                    <th style="padding:11px 18px;font-weight:500;text-align:right;" data-en="Cost">Coût</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <sc-for list="{{ campaigns }}" as="c" hint-placeholder-count="6">
+                    <tr style="border-top:1px solid var(--border-soft);cursor:pointer;" style-hover="background:var(--surface-2)">
+                      <td style="padding:11px 18px;">
+                        <div style="font-weight:500;">{{ c.name }}</div>
+                        <div style="font-size:11.5px;color:var(--text-3);margin-top:1px;">{{ c.audience }}</div>
+                      </td>
+                      <td style="padding:11px;"><span style="display:inline-flex;align-items:center;gap:7px;white-space:nowrap;"><span style="width:8px;height:8px;border-radius:3px;background:{{ c.chColor }};"></span>{{ c.channel }}</span></td>
+                      <td style="padding:11px;"><span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:500;padding:2px 9px;border-radius:20px;white-space:nowrap;color:{{ c.sc }};background:{{ c.sb }};">{{ c.status }}</span></td>
+                      <td style="padding:11px;text-align:right;font-family:'Geist Mono',monospace;white-space:nowrap;">{{ c.recipients }}</td>
+                      <td style="padding:11px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                          <div style="flex:1;height:6px;border-radius:5px;background:var(--surface-2);overflow:hidden;"><div style="height:100%;border-radius:5px;background:{{ c.pColor }};width:{{ c.progress }};"></div></div>
+                          <span style="font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-3);width:34px;text-align:right;">{{ c.progress }}</span>
+                        </div>
+                      </td>
+                      <td style="padding:11px;text-align:right;font-family:'Geist Mono',monospace;">{{ c.delivered }}</td>
+                      <td style="padding:11px;text-align:right;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-3);white-space:nowrap;">{{ c.date }}</td>
+                      <td style="padding:11px 18px;text-align:right;font-family:'Geist Mono',monospace;white-space:nowrap;">{{ c.cost }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ====================== MESSAGES ====================== -->
+      <sc-if value="{{ isMessages }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1240px;margin:0 auto;animation:flc-fade .3s ease;">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+            <div>
+              <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em;" data-en="Messages">Messages</h1>
+              <p style="margin:5px 0 0;color:var(--text-2);font-size:13.5px;" data-en="Every message routed through Fleece, in real time.">Chaque message routé via Fleece, en temps réel.</p>
+            </div>
+            <div style="display:flex;gap:9px;">
+              <button style="height:34px;padding:0 13px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer;font-family:inherit;font-size:13px;" style-hover="color:var(--text)" data-en="Export">Exporter</button>
+              <button style="height:34px;padding:0 13px;border-radius:8px;border:none;background:var(--accent);color:#06210f;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;" data-en="Send a message">Envoyer un message</button>
+            </div>
+          </div>
+
+          <!-- status summary strip -->
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;">
+            <sc-for list="{{ msgStats }}" as="s" hint-placeholder-count="5">
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px;">
+                <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);white-space:nowrap;"><span style="width:7px;height:7px;border-radius:50%;background:{{ s.color }};flex:none;"></span>{{ s.label }}</div>
+                <div style="font-size:20px;font-weight:600;font-family:'Geist Mono',monospace;margin-top:7px;">{{ s.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <!-- filters -->
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:14px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:220px;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 12px;color:var(--text-3);">
+              <span>⌕</span><input placeholder="Filtrer par destinataire, ID, statut…" style="border:none;background:none;outline:none;color:var(--text);font-family:inherit;font-size:13px;flex:1;"/>
+            </div>
+            <div style="display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 13px;font-size:12.5px;color:var(--text-2);cursor:pointer;font-family:'Geist Mono',monospace;"><span data-en="Channel">Canal</span> ▾</div>
+            <div style="display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 13px;font-size:12.5px;color:var(--text-2);cursor:pointer;font-family:'Geist Mono',monospace;"><span data-en="Status">Statut</span> ▾</div>
+            <div style="display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 13px;font-size:12.5px;color:var(--text-2);cursor:pointer;font-family:'Geist Mono',monospace;"><span data-en="Country">Pays</span> ▾</div>
+            <div style="display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 13px;font-size:12.5px;color:var(--text-2);cursor:pointer;font-family:'Geist Mono',monospace;">24h ▾</div>
+          </div>
+
+          <!-- table -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;">
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:880px;">
+                <thead>
+                  <tr style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;text-align:left;">
+                    <th style="padding:11px 18px;font-weight:500;">ID</th>
+                    <th style="padding:11px;font-weight:500;" data-en="Recipient">Destinataire</th>
+                    <th style="padding:11px;font-weight:500;" data-en="Channel">Canal</th>
+                    <th style="padding:11px;font-weight:500;" data-en="Status">Statut</th>
+                    <th style="padding:11px;font-weight:500;" data-en="Country">Pays</th>
+                    <th style="padding:11px;font-weight:500;" data-en="Provider">Fournisseur</th>
+                    <th style="padding:11px;font-weight:500;text-align:center;" data-en="Tries">Tent.</th>
+                    <th style="padding:11px;font-weight:500;text-align:right;" data-en="Cost">Coût</th>
+                    <th style="padding:11px 18px;font-weight:500;text-align:right;" data-en="Time">Heure</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <sc-for list="{{ messages }}" as="m" hint-placeholder-count="11">
+                    <tr style="border-top:1px solid var(--border-soft);cursor:pointer;" style-hover="background:var(--surface-2)">
+                      <td style="padding:11px 18px;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-2);">{{ m.id }}</td>
+                      <td style="padding:11px;font-family:'Geist Mono',monospace;font-size:12.5px;">{{ m.to }}</td>
+                      <td style="padding:11px;"><span style="display:inline-flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:3px;background:{{ m.chColor }};"></span>{{ m.channel }}</span></td>
+                      <td style="padding:11px;"><span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:500;padding:2px 9px;border-radius:20px;white-space:nowrap;color:{{ m.statusColor }};background:{{ m.statusBg }};">{{ m.status }}</span></td>
+                      <td style="padding:11px;"><span style="font-family:'Geist Mono',monospace;font-size:11px;background:var(--surface-2);border:1px solid var(--border);padding:1px 6px;border-radius:5px;">{{ m.country }}</span></td>
+                      <td style="padding:11px;color:var(--text-2);">{{ m.provider }}</td>
+                      <td style="padding:11px;text-align:center;font-family:'Geist Mono',monospace;color:var(--text-2);">{{ m.tries }}</td>
+                      <td style="padding:11px;text-align:right;font-family:'Geist Mono',monospace;">{{ m.cost }}</td>
+                      <td style="padding:11px 18px;text-align:right;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-3);">{{ m.time }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text-3);">
+              <span data-en="Showing 11 of 1,248,392 messages">11 sur 1 248 392 messages</span>
+              <div style="display:flex;gap:7px;">
+                <button style="padding:5px 11px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text-3);cursor:pointer;font-family:inherit;font-size:12.5px;">←</button>
+                <button style="padding:5px 11px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-size:12.5px;">→</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ====================== API & WEBHOOKS ====================== -->
+      <sc-if value="{{ isApi }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1240px;margin:0 auto;animation:flc-fade .3s ease;">
+          <div style="margin-bottom:22px;">
+            <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em;">API & Webhooks</h1>
+            <p style="margin:5px 0 0;color:var(--text-2);font-size:13.5px;" data-en="Authenticate requests and receive real-time events.">Authentifiez vos requêtes et recevez les événements en temps réel.</p>
+          </div>
+
+          <!-- quickstart code -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px;box-shadow:var(--shadow);">
+            <div style="display:flex;align-items:center;gap:7px;padding:10px 14px;border-bottom:1px solid var(--border);font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-3);">
+              <span style="width:11px;height:11px;border-radius:50%;background:#f06363;"></span>
+              <span style="width:11px;height:11px;border-radius:50%;background:#e3a93a;"></span>
+              <span style="width:11px;height:11px;border-radius:50%;background:#27cf7d;"></span>
+              <span style="margin-left:8px;">POST https://api.fleece.dev/v1/messages</span>
+              <span style="margin-left:auto;color:var(--text-2);cursor:pointer;" data-en="Copy">Copier ⧉</span>
+            </div>
+            <pre style="margin:0;padding:18px;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.7;color:var(--text-2);overflow-x:auto;"><span style="color:var(--info)">curl</span> https://api.fleece.dev/v1/messages \
+  -H <span style="color:var(--accent-text)">"Authorization: Bearer fl_live_7a3f…"</span> \
+  -H <span style="color:var(--accent-text)">"Content-Type: application/json"</span> \
+  -d '{
+    <span style="color:var(--warn)">"to"</span>: <span style="color:var(--accent-text)">"+237 6XX XXX XXX"</span>,
+    <span style="color:var(--warn)">"channels"</span>: [<span style="color:var(--accent-text)">"whatsapp"</span>, <span style="color:var(--accent-text)">"sms"</span>, <span style="color:var(--accent-text)">"telegram"</span>],
+    <span style="color:var(--warn)">"strategy"</span>: <span style="color:var(--accent-text)">"highest_delivery"</span>,
+    <span style="color:var(--warn)">"body"</span>: <span style="color:var(--accent-text)">"Votre code Fleece : 4821"</span>
+  }'</pre>
+          </div>
+
+          <!-- API keys -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:20px;">
+            <div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
+              <div>
+                <div style="font-size:15px;font-weight:600;" data-en="API Keys">Clés API</div>
+                <div style="font-size:12px;color:var(--text-3);margin-top:2px;" data-en="Create, rotate and revoke keys per environment.">Créez, faites tourner et révoquez vos clés par environnement.</div>
+              </div>
+              <button style="height:32px;padding:0 13px;border-radius:8px;border:none;background:var(--accent);color:#06210f;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;">+ <span data-en="New key">Nouvelle clé</span></button>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;text-align:left;">
+                  <th style="padding:10px 18px;font-weight:500;" data-en="Name">Nom</th>
+                  <th style="padding:10px;font-weight:500;" data-en="Key">Clé</th>
+                  <th style="padding:10px;font-weight:500;" data-en="Permissions">Permissions</th>
+                  <th style="padding:10px;font-weight:500;" data-en="Last used">Dern. usage</th>
+                  <th style="padding:10px;font-weight:500;" data-en="Status">Statut</th>
+                  <th style="padding:10px 18px;font-weight:500;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ apiKeys }}" as="k" hint-placeholder-count="4">
+                  <tr style="border-top:1px solid var(--border-soft);">
+                    <td style="padding:12px 18px;font-weight:500;">{{ k.name }}</td>
+                    <td style="padding:12px;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-2);">{{ k.prefix }}</td>
+                    <td style="padding:12px;"><span style="font-size:11.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);padding:1px 8px;border-radius:6px;">{{ k.perm }}</span></td>
+                    <td style="padding:12px;color:var(--text-3);font-size:12.5px;">{{ k.used }}</td>
+                    <td style="padding:12px;"><span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:{{ k.statusColor }};"><span style="width:6px;height:6px;border-radius:50%;background:{{ k.statusColor }};"></span>{{ k.status }}</span></td>
+                    <td style="padding:12px 18px;text-align:right;font-family:'Geist Mono',monospace;color:var(--text-3);cursor:pointer;">⋯</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- webhooks -->
+          <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;">
+              <div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
+                <div style="font-size:15px;font-weight:600;">Webhooks</div>
+                <button style="height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-size:12.5px;">+ Endpoint</button>
+              </div>
+              <div style="display:flex;flex-direction:column;">
+                <sc-for list="{{ webhooks }}" as="w" hint-placeholder-count="3">
+                  <div style="padding:14px 18px;border-top:1px solid var(--border-soft);">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">
+                      <span style="font-family:'Geist Mono',monospace;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ w.url }}</span>
+                      <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:{{ w.statusColor }};flex:none;"><span style="width:6px;height:6px;border-radius:50%;background:{{ w.statusColor }};"></span>{{ w.status }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">{{ w.eventsEl }}
+                      <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-3);">{{ w.last }}</span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:18px;">
+              <div style="font-size:14px;font-weight:600;margin-bottom:4px;" data-en="Recent deliveries">Livraisons récentes</div>
+              <div style="font-size:12px;color:var(--text-3);margin-bottom:14px;" data-en="Signed with HMAC-SHA256.">Signées en HMAC-SHA256.</div>
+              <div style="display:flex;flex-direction:column;">
+                <sc-for list="{{ whEvents }}" as="e" hint-placeholder-count="6">
+                  <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-soft);">
+                    <span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;padding:1px 7px;border-radius:5px;color:{{ e.codeColor }};background:{{ e.codeBg }};">{{ e.code }}</span>
+                    <span style="font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ e.event }}</span>
+                    <span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;color:var(--text-3);flex:none;">{{ e.time }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ====================== WALLET ====================== -->
+      <sc-if value="{{ isWallet }}" hint-placeholder-val="{{ false }}">
+        <div style="max-width:1240px;margin:0 auto;animation:flc-fade .3s ease;">
+          <div style="margin-bottom:22px;">
+            <h1 style="margin:0;font-size:24px;font-weight:600;letter-spacing:-0.02em;">Wallet</h1>
+            <p style="margin:5px 0 0;color:var(--text-2);font-size:13.5px;" data-en="Prepaid balance, debits and refunds.">Solde prépayé, débits et remboursements.</p>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1.1fr 1.6fr;gap:14px;margin-bottom:14px;">
+            <!-- balance card -->
+            <div style="background:linear-gradient(160deg,var(--surface-2),var(--surface));border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;">
+              <div style="font-size:12.5px;color:var(--text-2);" data-en="Available balance">Solde disponible</div>
+              <div style="font-size:38px;font-weight:600;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;margin:6px 0 2px;">$4 820<span style="color:var(--text-3);font-size:24px;">,50</span></div>
+              <div style="font-size:12px;color:var(--text-3);font-family:'Geist Mono',monospace;" data-en="≈ 339k messages at avg cost">≈ 339k messages au coût moyen</div>
+              <div style="display:flex;gap:9px;margin:18px 0 16px;">
+                <button style="flex:1;height:36px;border-radius:9px;border:none;background:var(--accent);color:#06210f;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;" data-en="Add funds">Recharger</button>
+                <button style="height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-size:13px;" data-en="History">Historique</button>
+              </div>
+              <div style="margin-top:auto;background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:13px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <span style="font-size:12.5px;font-weight:500;" data-en="Auto-recharge">Recharge auto</span>
+                  <span style="width:34px;height:19px;border-radius:20px;background:var(--accent);position:relative;flex:none;"><span style="position:absolute;top:2px;right:2px;width:15px;height:15px;border-radius:50%;background:#fff;"></span></span>
+                </div>
+                <div style="font-size:11.5px;color:var(--text-3);margin-top:7px;line-height:1.5;" data-en="When balance drops below $500, add $2,000 automatically.">Sous $500 de solde, recharge automatique de $2 000.</div>
+              </div>
+            </div>
+
+            <!-- spend chart -->
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 18px 10px;box-shadow:var(--shadow);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <div style="font-size:14px;font-weight:600;" data-en="Spend">Dépenses</div>
+                  <div style="font-size:12px;color:var(--text-3);margin-top:2px;font-family:'Geist Mono',monospace;">$4 240 · 30 derniers jours</div>
+                </div>
+                <div style="display:flex;gap:14px;font-size:12px;color:var(--text-2);">
+                  <span style="display:flex;align-items:center;gap:6px;"><span style="width:9px;height:9px;border-radius:2px;background:var(--info);"></span><span data-en="Debits">Débits</span></span>
+                </div>
+              </div>
+              <div style="height:170px;">{{ areaSpend }}</div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:8px;">
+                <sc-for list="{{ spendChannels }}" as="s" hint-placeholder-count="3">
+                  <div style="background:var(--surface-2);border:1px solid var(--border-soft);border-radius:10px;padding:11px 13px;">
+                    <div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);"><span style="width:8px;height:8px;border-radius:3px;background:{{ s.color }};"></span>{{ s.name }}</div>
+                    <div style="font-size:16px;font-weight:600;font-family:'Geist Mono',monospace;margin-top:6px;">{{ s.amount }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <!-- transactions + invoices -->
+          <div style="display:grid;grid-template-columns:1.7fr 1fr;gap:14px;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;">
+              <div style="padding:16px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600;" data-en="Transactions">Transactions</div>
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                  <tr style="color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;text-align:left;">
+                    <th style="padding:10px 18px;font-weight:500;" data-en="Date">Date</th>
+                    <th style="padding:10px;font-weight:500;" data-en="Description">Description</th>
+                    <th style="padding:10px;font-weight:500;text-align:right;" data-en="Amount">Montant</th>
+                    <th style="padding:10px 18px;font-weight:500;text-align:right;" data-en="Balance">Solde</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <sc-for list="{{ transactions }}" as="t" hint-placeholder-count="8">
+                    <tr style="border-top:1px solid var(--border-soft);">
+                      <td style="padding:11px 18px;font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-3);white-space:nowrap;">{{ t.date }}</td>
+                      <td style="padding:11px;"><span style="display:inline-flex;align-items:center;gap:8px;"><span style="font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:5px;color:{{ t.tagColor }};background:{{ t.tagBg }};font-family:'Geist Mono',monospace;">{{ t.type }}</span>{{ t.desc }}</span></td>
+                      <td style="padding:11px;text-align:right;font-family:'Geist Mono',monospace;font-weight:600;white-space:nowrap;color:{{ t.amtColor }};">{{ t.amount }}</td>
+                      <td style="padding:11px 18px;text-align:right;font-family:'Geist Mono',monospace;white-space:nowrap;color:var(--text-2);">{{ t.bal }}</td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;">
+              <div style="padding:16px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600;" data-en="Invoices">Factures</div>
+              <div style="display:flex;flex-direction:column;">
+                <sc-for list="{{ invoices }}" as="i" hint-placeholder-count="3">
+                  <div style="display:flex;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid var(--border-soft);">
+                    <span style="font-family:'Geist Mono',monospace;font-size:13px;color:var(--text-2);">⎙</span>
+                    <div style="display:flex;flex-direction:column;line-height:1.3;">
+                      <span style="font-size:13px;font-weight:500;">{{ i.month }}</span>
+                      <span style="font-size:11.5px;color:var(--text-3);font-family:'Geist Mono',monospace;white-space:nowrap;">{{ i.amount }}</span>
+                    </div>
+                    <span style="margin-left:auto;font-size:11px;color:var(--accent-text);background:var(--accent-soft);padding:2px 9px;border-radius:20px;" data-en="Paid">Payée</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1320,&quot;height&quot;:880},&quot;defaultScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;overview&quot;,&quot;campaigns&quot;,&quot;messages&quot;,&quot;api&quot;,&quot;wallet&quot;],&quot;default&quot;:&quot;overview&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultVariant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultLang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;fr&quot;,&quot;en&quot;],&quot;default&quot;:&quot;fr&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = {
+    screen: this.props.defaultScreen || 'overview',
+    variant: this.props.defaultVariant || 'a',
+    theme: this.props.defaultTheme || 'dark',
+    lang: this.props.defaultLang || 'fr',
+  };
+
+  componentDidMount(){ if(this.root){ this.root.dataset.theme = this.state.theme; this.applyLang(); } }
+  componentDidUpdate(){
+    if(!this.root) return;
+    this.root.dataset.theme = this.state.theme;
+    this.applyLang();
+  }
+  applyLang(){
+    const en = this.state.lang === 'en';
+    this.root.querySelectorAll('[data-en]').forEach(n=>{
+      if(n.dataset.fr === undefined) n.dataset.fr = n.textContent;
+      n.textContent = en ? n.dataset.en : n.dataset.fr;
+    });
+  }
+
+  // ---- chart builders ----
+  area(vals, id, color, fillStrong){
+    const h=React.createElement, W=1000,H=260,pad=6;
+    const max=Math.max.apply(null,vals)*1.12, min=Math.min.apply(null,vals)*0.85, n=vals.length;
+    const X=i=> pad + i*(W-2*pad)/(n-1);
+    const Y=v=> H-14 - ((v-min)/(max-min||1))*(H-28);
+    let d='M '+X(0).toFixed(1)+' '+Y(vals[0]).toFixed(1);
+    for(let i=1;i<n;i++){ const x0=X(i-1),y0=Y(vals[i-1]),x1=X(i),y1=Y(vals[i]),xc=(x0+x1)/2;
+      d+=' C '+xc.toFixed(1)+' '+y0.toFixed(1)+' '+xc.toFixed(1)+' '+y1.toFixed(1)+' '+x1.toFixed(1)+' '+y1.toFixed(1); }
+    const a=d+' L '+X(n-1).toFixed(1)+' '+H+' L '+X(0).toFixed(1)+' '+H+' Z';
+    const grid=[0.0,0.33,0.66,1.0].map((g,gi)=>h('line',{key:'g'+gi,x1:0,x2:W,y1:14+g*(H-28),y2:14+g*(H-28),style:{stroke:'var(--border-soft)'},strokeWidth:1}));
+    return h('svg',{viewBox:'0 0 '+W+' '+H,preserveAspectRatio:'none',style:{width:'100%',height:'100%',display:'block'}},
+      h('defs',null,h('linearGradient',{id:id,x1:0,y1:0,x2:0,y2:1},
+        h('stop',{offset:'0%',style:{stopColor:color,stopOpacity:fillStrong?0.34:0.26}}),
+        h('stop',{offset:'100%',style:{stopColor:color,stopOpacity:0}}))),
+      grid,
+      h('path',{d:a,fill:'url(#'+id+')'}),
+      h('path',{d:d,fill:'none',style:{stroke:color},strokeWidth:2.4,strokeLinecap:'round',strokeLinejoin:'round'}));
+  }
+  spark(vals,color){
+    const h=React.createElement, W=200,H=40;
+    const max=Math.max.apply(null,vals), min=Math.min.apply(null,vals), n=vals.length;
+    const X=i=> i*W/(n-1), Y=v=> H-4 - ((v-min)/(max-min||1))*(H-8);
+    let d='M '+X(0).toFixed(1)+' '+Y(vals[0]).toFixed(1);
+    for(let i=1;i<n;i++){ const x0=X(i-1),y0=Y(vals[i-1]),x1=X(i),y1=Y(vals[i]),xc=(x0+x1)/2;
+      d+=' C '+xc.toFixed(1)+' '+y0.toFixed(1)+' '+xc.toFixed(1)+' '+y1.toFixed(1)+' '+x1.toFixed(1)+' '+y1.toFixed(1); }
+    const a=d+' L '+W+' '+H+' L 0 '+H+' Z', id='sp'+Math.random().toString(36).slice(2,7);
+    return h('svg',{viewBox:'0 0 '+W+' '+H,preserveAspectRatio:'none',style:{width:'100%',height:'100%',display:'block'}},
+      h('defs',null,h('linearGradient',{id:id,x1:0,y1:0,x2:0,y2:1},
+        h('stop',{offset:'0%',style:{stopColor:color,stopOpacity:0.28}}),h('stop',{offset:'100%',style:{stopColor:color,stopOpacity:0}}))),
+      h('path',{d:a,fill:'url(#'+id+')'}),
+      h('path',{d:d,fill:'none',style:{stroke:color},strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'}));
+  }
+  donut(segs,size){
+    const h=React.createElement, r=size/2-9, c=size/2, circ=2*Math.PI*r;
+    const total=segs.reduce((a,s)=>a+s.value,0); let off=0;
+    const arcs=segs.map((s,i)=>{ const len=s.value/total*circ;
+      const el=h('circle',{key:i,cx:c,cy:c,r:r,fill:'none',style:{stroke:s.color},strokeWidth:13,strokeDasharray:len.toFixed(2)+' '+(circ-len).toFixed(2),strokeDashoffset:(-off).toFixed(2)});
+      off+=len; return el; });
+    return h('svg',{viewBox:'0 0 '+size+' '+size,style:{width:size,height:size,transform:'rotate(-90deg)'}},
+      h('circle',{cx:c,cy:c,r:r,fill:'none',style:{stroke:'var(--border)'},strokeWidth:13}), arcs);
+  }
+  chips(events){
+    const h=React.createElement;
+    return events.map((e,i)=>h('span',{key:i,style:{fontFamily:"'Geist Mono',monospace",fontSize:'10.5px',color:'var(--text-2)',background:'var(--surface-2)',border:'1px solid var(--border)',padding:'1px 7px',borderRadius:'5px'}},e));
+  }
+
+  renderVals(){
+    const s=this.state, S=v=>this.setState({screen:v});
+    const act='background:var(--accent-soft);color:var(--accent-text);font-weight:500;', ina='color:var(--text-2);';
+    const segOn='background:var(--accent);color:#06210f;', segOff='background:transparent;color:var(--text-2);';
+    const GREEN='var(--accent)', INFO='var(--info)', DANG='var(--danger)', WARN='var(--warn)';
+    const WA='#27cf7d', SMS='#5e9bf0', TG='#3aa6e0';
+
+    const crumb = {overview:"Vue d'ensemble",campaigns:'Campagnes',messages:'Messages',api:'API & Webhooks',wallet:'Wallet'}[s.screen];
+
+    const campVals=[4,6,3,8,12,5,9,14,7,11,18,10,6,15,22,9,13,20,8,12,24,11,16,9,19,26,10,14,22,17];
+    const campaignKpis=[
+      {label:'Campagnes (30j)', value:'24', delta:'+6', dc:'var(--accent-text)', db:'var(--accent-soft)'},
+      {label:'Destinataires', value:'312 480', delta:'+18%', dc:'var(--accent-text)', db:'var(--accent-soft)'},
+      {label:'Délivrabilité moy.', value:'97,2%', delta:'+0,4 pt', dc:'var(--accent-text)', db:'var(--accent-soft)'},
+      {label:'Crédits dépensés', value:'$1 458', delta:'−6%', dc:'var(--accent-text)', db:'var(--accent-soft)'},
+    ];
+    const scheduled=[
+      {name:'OTP rappel paiement', when:'21 juin 09:00', ch:'SMS', n:'12 480'},
+      {name:'Promo week-end', when:'22 juin 10:00', ch:'WhatsApp', n:'56 000'},
+      {name:'Newsletter juillet', when:'01 juil 08:00', ch:'Multi', n:'108 000'},
+    ];
+    const cst={
+      encours:{l:'En cours',c:'var(--info)',b:'var(--info-soft)',p:'var(--info)'},
+      prog:{l:'Programmée',c:'var(--warn)',b:'var(--warn-soft)',p:'var(--warn)'},
+      envoyee:{l:'Envoyée',c:'var(--accent-text)',b:'var(--accent-soft)',p:'var(--accent)'},
+      brouillon:{l:'Brouillon',c:'var(--text-3)',b:'var(--surface-2)',p:'var(--text-3)'},
+      pause:{l:'En pause',c:'var(--text-2)',b:'var(--surface-2)',p:'var(--text-3)'},
+    };
+    const cch={WhatsApp:'#27cf7d',SMS:'#5e9bf0',Telegram:'#3aa6e0',Multi:'#b08cf0'};
+    const campRaw=[
+      ['Promo Tabaski · CI','Clients actifs','WhatsApp','encours','48 200','62%','97,1%',"auj. 14:02",'$294'],
+      ['OTP rappel paiement','Impayés J+3','SMS','prog','12 480','0%','—','21 juin 09:00','—'],
+      ['Newsletter produit','Tous · FR','Multi','envoyee','104 900','100%','98,4%','18 juin 10:00','$1 040'],
+      ['Relance panier','Paniers abandonnés','WhatsApp','envoyee','8 740','100%','96,2%','17 juin 18:30','$53'],
+      ['Bienvenue · SN','Nouveaux · SN','SMS','brouillon','—','0%','—','—','—'],
+      ['Alerte sécurité','Tous','Multi','pause','2 100','34%','95,0%','16 juin 12:00','$18'],
+    ];
+    const campaigns=campRaw.map(r=>({name:r[0],audience:r[1],channel:r[2],chColor:cch[r[2]],status:cst[r[3]].l,sc:cst[r[3]].c,sb:cst[r[3]].b,pColor:cst[r[3]].p,recipients:r[4],progress:r[5],delivered:r[6],date:r[7],cost:r[8]}));
+
+    const msgVals=[28,31,29,34,40,22,18,36,41,39,45,52,30,25,48,55,51,58,62,38,33,60,66,63,71,78,49,44,74,82];
+    const spendVals=[110,140,95,160,180,120,90,150,170,165,200,210,130,115,190,220,205,230,240,150,130,235,260,250,275,300,190,170,290,320];
+    const thru=[120,90,80,110,140,180,240,300,360,420,460,500,540,520,560,600,580,540,480,420,360,300,220,160];
+
+    const kpis=[
+      {label: s.lang==='en'?'Messages sent':'Messages envoyés', value:'1 248 392', delta:'+12,4%', deltaColor:'var(--accent-text)', deltaBg:'var(--accent-soft)', spark:this.spark(msgVals,GREEN)},
+      {label: s.lang==='en'?'Deliverability':'Délivrabilité', value:'96,8%', delta:'+0,6 pt', deltaColor:'var(--accent-text)', deltaBg:'var(--accent-soft)', spark:this.spark([94,95,94.5,96,95.5,96.2,96.8],GREEN)},
+      {label: s.lang==='en'?'Avg cost / msg':'Coût moyen / msg', value:'$0.0142', delta:'-3,1%', deltaColor:'var(--accent-text)', deltaBg:'var(--accent-soft)', spark:this.spark([165,160,158,155,150,148,142].reverse(),INFO)},
+      {label: s.lang==='en'?'Failures':'Échecs', value:'39 820', delta:'-0,4 pt', deltaColor:'var(--accent-text)', deltaBg:'var(--accent-soft)', spark:this.spark([52,48,50,44,46,42,40],DANG)},
+    ];
+    const channels=[{name:'WhatsApp',pct:'52%',color:WA,value:52},{name:'SMS',pct:'38%',color:SMS,value:38},{name:'Telegram',pct:'10%',color:TG,value:10}];
+    const countries=[
+      {code:'CM',name:'Cameroun',vol:'412k',rate:'96,2%',w:'68%'},
+      {code:'CI',name:"Côte d'Ivoire",vol:'288k',rate:'95,1%',w:'57%'},
+      {code:'SN',name:'Sénégal',vol:'201k',rate:'97,4%',w:'74%'},
+      {code:'FR',name:'France',vol:'347k',rate:'98,9%',w:'89%'},
+    ];
+    const activity=[
+      {color:GREEN,event:'message.delivered',detail:'+237 6•• ••• 412 · WhatsApp',time:'12s'},
+      {color:INFO,event:'wallet.debited',detail:'-$0.0061 · WhatsApp',time:'12s'},
+      {color:DANG,event:'message.failed',detail:'+225 0•• ••• 188 · SMS',time:'34s'},
+      {color:GREEN,event:'message.delivered',detail:'+221 7•• ••• 903 · SMS',time:'47s'},
+      {color:WARN,event:'message.queued',detail:'+33 6•• ••• 21 · Telegram',time:'1min'},
+      {color:GREEN,event:'message.delivered',detail:'+237 6•• ••• 770 · WhatsApp',time:'1min'},
+      {color:INFO,event:'wallet.refunded',detail:'+$0.0089 · échec SMS',time:'2min'},
+    ];
+
+    // variant B
+    const stripMetrics=[
+      {label:'Débit/min', value:'1 842', sub:'+8%', color:'var(--accent-text)'},
+      {label:'Délivrabilité', value:'96,8%', sub:'+0,6pt', color:'var(--accent-text)'},
+      {label:'Latence P95', value:'412ms', sub:'-22ms', color:'var(--accent-text)'},
+      {label:"File d'attente", value:'1 204', sub:'stable', color:'var(--text-3)'},
+      {label:'Coût/msg', value:'$0.0142', sub:'-3,1%', color:'var(--accent-text)'},
+      {label:'Solde', value:'$4 820', sub:'≈ 339k msgs', color:'var(--text-3)'},
+    ];
+    const funnel=[
+      {label:'WhatsApp', value:'1.00M', pct:'80%', color:WA, w:'100%'},
+      {label:'SMS (fallback)', value:'176k', pct:'14%', color:SMS, w:'52%'},
+      {label:'Telegram (fallback)', value:'34k', pct:'3%', color:TG, w:'24%'},
+      {label:'Échec final', value:'13k', pct:'1%', color:DANG, w:'10%'},
+    ];
+    const providers=[
+      {name:'Meta WhatsApp', channel:'WhatsApp', status:'Opérationnel', statusColor:'var(--accent-text)', delivery:'98,2%', latency:'240ms', cost:'$0.0061'},
+      {name:'Twilio', channel:'SMS', status:'Opérationnel', statusColor:'var(--accent-text)', delivery:'95,4%', latency:'380ms', cost:'$0.0089'},
+      {name:'MessageBird', channel:'SMS', status:'Opérationnel', statusColor:'var(--accent-text)', delivery:'94,1%', latency:'410ms', cost:'$0.0102'},
+      {name:'Orange CM', channel:'SMS', status:'Dégradé', statusColor:'var(--warn)', delivery:'91,0%', latency:'720ms', cost:'$0.0074'},
+      {name:'Telegram Bot API', channel:'Telegram', status:'Opérationnel', statusColor:'var(--accent-text)', delivery:'99,1%', latency:'180ms', cost:'$0.0000'},
+    ];
+
+    // messages
+    const st={
+      delivered:{label:'Délivré',c:'var(--accent-text)',b:'var(--accent-soft)'},
+      sent:{label:'Envoyé',c:'var(--info)',b:'var(--info-soft)'},
+      queued:{label:'En file',c:'var(--warn)',b:'var(--warn-soft)'},
+      failed:{label:'Échec',c:'var(--danger)',b:'var(--danger-soft)'},
+    };
+    const ch={whatsapp:{n:'WhatsApp',c:WA},sms:{n:'SMS',c:SMS},telegram:{n:'Telegram',c:TG}};
+    const raw=[
+      ['msg_7f3a2c','+237 6•• ••• 412','whatsapp','delivered','CM','Meta',1,'$0.0061','14:32:08'],
+      ['msg_91bd04','+221 7•• ••• 903','sms','delivered','SN','Twilio',1,'$0.0089','14:32:01'],
+      ['msg_2e8a17','+225 0•• ••• 188','sms','failed','CI','Orange CM',3,'$0.0000','14:31:54'],
+      ['msg_4c0f9b','+33 6•• ••• 21','telegram','delivered','FR','Telegram',1,'$0.0000','14:31:40'],
+      ['msg_a18d3e','+237 6•• ••• 770','whatsapp','delivered','CM','Meta',1,'$0.0061','14:31:22'],
+      ['msg_5b7c61','+221 7•• ••• 044','whatsapp','sent','SN','Meta',1,'$0.0061','14:31:09'],
+      ['msg_d49021','+225 0•• ••• 512','sms','queued','CI','MessageBird',2,'$0.0102','14:30:58'],
+      ['msg_0a3f8c','+33 6•• ••• 88','sms','delivered','FR','Twilio',1,'$0.0078','14:30:41'],
+      ['msg_6e2b14','+237 6•• ••• 199','whatsapp','delivered','CM','Meta',1,'$0.0061','14:30:30'],
+      ['msg_c7f405','+221 7•• ••• 327','telegram','delivered','SN','Telegram',1,'$0.0000','14:30:12'],
+      ['msg_b80d2a','+225 0•• ••• 740','sms','failed','CI','Orange CM',3,'$0.0000','14:29:55'],
+    ];
+    const messages=raw.map(r=>({id:r[0],to:r[1],channel:ch[r[2]].n,chColor:ch[r[2]].c,status:st[r[3]].label,statusColor:st[r[3]].c,statusBg:st[r[3]].b,country:r[4],provider:r[5],tries:r[6],cost:r[7],time:r[8]}));
+    const msgStats=[
+      {label:'Délivrés',color:'var(--accent)',value:'1.21M'},
+      {label:'Envoyés',color:'var(--info)',value:'18 904'},
+      {label:'En file',color:'var(--warn)',value:'1 204'},
+      {label:'Échecs',color:'var(--danger)',value:'39 820'},
+      {label:'Taux',color:'var(--text-3)',value:'96,8%'},
+    ];
+
+    // api keys
+    const apiKeys=[
+      {name:'Production', prefix:'fl_live_7a3f••••2c91', perm:'Full access', used:'il y a 2 min', status:'Active', statusColor:'var(--accent-text)'},
+      {name:'Serveur staging', prefix:'fl_test_9b1c••••8f44', perm:'Sending only', used:'il y a 1 h', status:'Active', statusColor:'var(--accent-text)'},
+      {name:'Analytics (read)', prefix:'fl_live_2d8e••••a107', perm:'Read only', used:'il y a 3 j', status:'Active', statusColor:'var(--accent-text)'},
+      {name:'Ancienne clé CI', prefix:'fl_live_0c4a••••11bd', perm:'Full access', used:'il y a 41 j', status:'Révoquée', statusColor:'var(--text-3)'},
+    ];
+    const webhooks=[
+      {url:'https://api.acme.io/hooks/fleece', status:'Actif', statusColor:'var(--accent-text)', last:'200 · 12s', eventsEl:this.chips(['message.delivered','message.failed','wallet.debited'])},
+      {url:'https://ops.acme.io/alerts', status:'Actif', statusColor:'var(--accent-text)', last:'200 · 3min', eventsEl:this.chips(['message.failed'])},
+      {url:'https://staging.acme.io/wh', status:'En pause', statusColor:'var(--warn)', last:'—', eventsEl:this.chips(['message.sent','message.delivered'])},
+    ];
+    const ok={c:'var(--accent-text)',b:'var(--accent-soft)'}, bad={c:'var(--danger)',b:'var(--danger-soft)'};
+    const whEvents=[
+      {code:'200',codeColor:ok.c,codeBg:ok.b,event:'message.delivered',time:'12s'},
+      {code:'200',codeColor:ok.c,codeBg:ok.b,event:'wallet.debited',time:'12s'},
+      {code:'200',codeColor:ok.c,codeBg:ok.b,event:'message.failed',time:'34s'},
+      {code:'500',codeColor:bad.c,codeBg:bad.b,event:'message.delivered',time:'1min'},
+      {code:'200',codeColor:ok.c,codeBg:ok.b,event:'message.sent',time:'1min'},
+      {code:'200',codeColor:ok.c,codeBg:ok.b,event:'wallet.refunded',time:'2min'},
+    ];
+
+    // wallet
+    const spendChannels=[{name:'WhatsApp',color:WA,amount:'$2 140'},{name:'SMS',color:SMS,amount:'$1 980'},{name:'Telegram',color:TG,amount:'$120'}];
+    const debit={t:'DÉBIT',c:'var(--info)',b:'var(--info-soft)'}, credit={t:'CRÉDIT',c:'var(--accent-text)',b:'var(--accent-soft)'}, refund={t:'REMB.',c:'var(--warn)',b:'var(--warn-soft)'};
+    const transactions=[
+      {date:'20 juin 14:32', type:debit.t, tagColor:debit.c, tagBg:debit.b, desc:'Envoi WhatsApp · 12 000 msgs', amount:'-$73,20', amtColor:'var(--text)', bal:'$4 820,50'},
+      {date:'20 juin 09:14', type:debit.t, tagColor:debit.c, tagBg:debit.b, desc:'Envoi SMS · 8 400 msgs', amount:'-$74,76', amtColor:'var(--text)', bal:'$4 893,70'},
+      {date:'19 juin 22:01', type:refund.t, tagColor:refund.c, tagBg:refund.b, desc:'Remboursement · 312 échecs', amount:'+$2,78', amtColor:'var(--accent-text)', bal:'$4 968,46'},
+      {date:'19 juin 11:48', type:debit.t, tagColor:debit.c, tagBg:debit.b, desc:'Envoi WhatsApp · 9 100 msgs', amount:'-$55,51', amtColor:'var(--text)', bal:'$4 965,68'},
+      {date:'18 juin 08:30', type:credit.t, tagColor:credit.c, tagBg:credit.b, desc:'Recharge auto · Visa ••42', amount:'+$2 000,00', amtColor:'var(--accent-text)', bal:'$5 021,19'},
+      {date:'17 juin 16:22', type:debit.t, tagColor:debit.c, tagBg:debit.b, desc:'Envoi SMS · 11 200 msgs', amount:'-$99,68', amtColor:'var(--text)', bal:'$3 021,19'},
+      {date:'17 juin 10:05', type:debit.t, tagColor:debit.c, tagBg:debit.b, desc:'Envoi Telegram · 4 000 msgs', amount:'-$0,00', amtColor:'var(--text)', bal:'$3 120,87'},
+      {date:'16 juin 19:40', type:refund.t, tagColor:refund.c, tagBg:refund.b, desc:'Remboursement · 88 échecs', amount:'+$0,78', amtColor:'var(--accent-text)', bal:'$3 120,87'},
+    ];
+    const invoices=[{month:'Mai 2026',amount:'$3 940,12'},{month:'Avril 2026',amount:'$3 210,55'},{month:'Mars 2026',amount:'$2 880,03'}];
+
+    return {
+      rootRef: el=>{ this.root=el; },
+      crumb,
+      navOverview: s.screen==='overview'?act:ina,
+      navCampaigns: s.screen==='campaigns'?act:ina,
+      navMessages: s.screen==='messages'?act:ina,
+      navApi: s.screen==='api'?act:ina,
+      navWallet: s.screen==='wallet'?act:ina,
+      isOverview: s.screen==='overview', isCampaigns: s.screen==='campaigns', isMessages: s.screen==='messages', isApi: s.screen==='api', isWallet: s.screen==='wallet',
+      campaignKpis, scheduled, campaigns, areaCampaign: this.area(campVals,'gCamp','var(--accent)',true),
+      isVarA: s.variant==='a', isVarB: s.variant==='b',
+      segA: s.variant==='a'?segOn:segOff, segB: s.variant==='b'?segOn:segOff,
+      goOverview:()=>S('overview'), goCampaigns:()=>S('campaigns'), goMessages:()=>S('messages'), goApi:()=>S('api'), goWallet:()=>S('wallet'),
+      setVarA:()=>this.setState({variant:'a'}), setVarB:()=>this.setState({variant:'b'}),
+      toggleTheme:()=>this.setState({theme:s.theme==='dark'?'light':'dark'}),
+      toggleLang:()=>this.setState({lang:s.lang==='fr'?'en':'fr'}),
+      themeIcon: s.theme==='dark'?'☀':'☾',
+      langLabel: s.lang==='fr'?'FR':'EN',
+      kpis, channels, countries, activity,
+      donutEl: this.donut(channels,148),
+      areaMsg: this.area(msgVals,'gMsg','var(--accent)',true),
+      areaSpend: this.area(spendVals,'gSpend','var(--info)',false),
+      throughputEl: this.area(thru,'gThru','var(--accent)',true),
+      stripMetrics, funnel, providers,
+      messages, msgStats,
+      apiKeys, webhooks, whEvents,
+      spendChannels, transactions, invoices,
+    };
+  }
+}
+</script>
+</body>
+</html>
+

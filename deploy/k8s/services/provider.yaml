@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider
+  namespace: fleece
+  labels:
+    app: provider
+    app.kubernetes.io/component: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: provider
+  template:
+    metadata:
+      labels:
+        app: provider
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres 5432; do
+                echo "waiting for postgres..."; sleep 3
+              done
+      containers:
+        - name: provider
+          image: fleece/provider:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8084
+              name: http
+          env:
+            - name: PORT
+              value: "8084"
+            - name: POSTGRES_SEARCH_PATH
+              value: "provider"
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: fleece-secret
+                  key: POSTGRES_DSN
+            # Provider secrets (Twilio + WhatsApp) come from the Secret via envFrom below
+          envFrom:
+            - configMapRef:
+                name: fleece-config
+            - secretRef:
+                name: fleece-secret
+          readinessProbe:
+            tcpSocket:
+              port: 8084
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: provider
+  namespace: fleece
+  labels:
+    app: provider
+spec:
+  type: ClusterIP
+  selector:
+    app: provider
+  ports:
+    - name: http
+      port: 8084
+      targetPort: 8084
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: provider-hpa
+  namespace: fleece
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: provider
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook
+  namespace: fleece
+  labels:
+    app: webhook
+    app.kubernetes.io/component: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webhook
+  template:
+    metadata:
+      labels:
+        app: webhook
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres 5432; do
+                echo "waiting for postgres..."; sleep 3
+              done
+      containers:
+        - name: webhook
+          image: fleece/webhook:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+              name: http
+          env:
+            - name: PORT
+              value: "8085"
+            - name: POSTGRES_SEARCH_PATH
+              value: "webhook"
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: fleece-secret
+                  key: POSTGRES_DSN
+          envFrom:
+            - configMapRef:
+                name: fleece-config
+            - secretRef:
+                name: fleece-secret
+                optional: true
+          readinessProbe:
+            tcpSocket:
+              port: 8085
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8085
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook
+  namespace: fleece
+  labels:
+    app: webhook
+spec:
+  type: ClusterIP
+  selector:
+    app: webhook
+  ports:
+    - name: http
+      port: 8085
+      targetPort: 8085
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: webhook-hpa
+  namespace: fleece
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: webhook
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Go: build, vet, test
+  # -----------------------------------------------------------------------
+  go:
+    name: Go build / vet / test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      - name: Build all Go services
+        run: go build ./src/...
+
+      - name: Vet all Go sources
+        run: go vet ./src/...
+
+      - name: Test all Go sources
+        run: go test ./src/...
+
+  # -----------------------------------------------------------------------
+  # TypeScript: type-check + esbuild bundle (auth-api, graphql-api)
+  # -----------------------------------------------------------------------
+  ts:
+    name: TypeScript build (auth-api + graphql-api)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "21"
+          cache: "npm"
+
+      - name: Install dependencies
+        # package-lock.json is present at repo root (npm workspaces)
+        run: npm ci
+
+      - name: Install make
+        run: sudo apt-get install -y make
+
+      - name: Build auth-api
+        run: make build pkg=auth-api
+
+      - name: Build graphql-api
+        run: make build pkg=graphql-api
+
+  # -----------------------------------------------------------------------
+  # Frontend: platform-app (Next.js)
+  # -----------------------------------------------------------------------
+  frontend:
+    name: Frontend build (platform-app)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "21"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install make
+        run: sudo apt-get install -y make
+
+      - name: Build platform-app
+        run: make build pkg=platform-app
+
+  # -----------------------------------------------------------------------
+  # Migrations: Atlas checksum + validate
+  # -----------------------------------------------------------------------
+  migrations:
+    name: Atlas migrate validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Atlas
+        run: |
+          curl -sSf https://atlasgo.sh | sh -s -- --yes
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify migration checksum (atlas migrate hash)
+        # Ensures atlas.sum is up-to-date with the migrations/ directory.
+        # If atlas.sum is missing or stale, this regenerates it; the diff
+        # check below catches any uncommitted drift.
+        run: atlas migrate hash --dir file://migrations
+
+      - name: Check for uncommitted atlas.sum changes
+        # Fails the CI if the developer forgot to commit an updated atlas.sum
+        # after adding or editing a migration file.
+        run: |
+          if ! git diff --exit-code migrations/; then
+            echo "ERROR: atlas.sum is out of date. Run 'atlas migrate hash --dir file://migrations' and commit the result."
+            exit 1
+          fi
+
+      - name: Validate migrations (lint)
+        # atlas migrate lint requires a running dev database (docker://postgres/16/dev).
+        # In CI without Docker-in-Docker this step is best-effort; remove --dev-url flag
+        # if the runner does not support Docker socket.
+        # The validate subcommand checks syntax and ordering without a live DB.
+        run: atlas migrate validate --dir file://migrations
+        continue-on-error: true

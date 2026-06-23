@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;450;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:#0a0a0a}
+  [data-theme="dark"]{
+    --bg:#0a0a0a;--bg-elev:#0f0f0f;--surface:#141414;--surface-2:#1a1a1a;
+    --border:#242424;--border-soft:#1b1b1b;
+    --text:#fafafa;--text-2:#9b9b9b;--text-3:#646464;
+    --accent:#27cf7d;--accent-2:#1fa863;--accent-soft:rgba(39,207,125,0.12);--accent-text:#3ddb8c;
+    --danger:#f06363;--warn:#e3a93a;--warn-soft:rgba(227,169,58,0.12);--info:#5e9bf0;--info-soft:rgba(94,155,240,0.12);
+  }
+  ::selection{background:var(--accent-soft)}
+  ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}
+  @keyframes flc-fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes flc-toast{from{opacity:0;transform:translate(16px,0)}to{opacity:1;transform:none}}
+  .flc-in:focus{border-color:var(--text-3)!important;background:var(--surface-2)!important}
+</style>
+</helmet>
+
+<div ref="{{ rootRef }}" data-theme="dark" style="font-family:'Geist',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;">
+
+  <!-- ============ AUTH SHELL (signup / login / check / confirm) ============ -->
+  <sc-if value="{{ isAuth }}" hint-placeholder-val="{{ true }}">
+    <div style="min-height:100vh;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(120% 80% at 88% -12%, rgba(255,255,255,0.10), transparent 46%), radial-gradient(90% 70% at 114% 64%, rgba(255,255,255,0.06), transparent 52%), radial-gradient(80% 80% at -12% 112%, rgba(255,255,255,0.05), transparent 52%), var(--bg);">
+
+      <!-- top bar -->
+      <div style="position:absolute;top:0;left:0;right:0;height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;">
+        <a href="#" onClick="{{ goSignup }}" style="display:flex;align-items:center;gap:8px;color:var(--text-2);text-decoration:none;font-size:13.5px;" style-hover="color:var(--text)"><span style="font-size:16px;">&#8249;</span> <span data-en="Home">Accueil</span></a>
+        <button onClick="{{ toggleLang }}" style="height:30px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:rgba(20,20,20,0.6);color:var(--text-2);cursor:pointer;font-family:'Geist Mono',monospace;font-size:12px;font-weight:500;" style-hover="color:var(--text)">{{ langLabel }}</button>
+      </div>
+
+      <!-- SIGNUP -->
+      <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ true }}">
+        <div style="width:100%;max-width:392px;animation:flc-fade .35s ease;">
+          <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:26px;">
+            <span style="width:46px;height:46px;border-radius:13px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#06210f;font-weight:700;font-size:24px;margin-bottom:18px;">F</span>
+            <h1 style="margin:0;font-size:25px;font-weight:600;letter-spacing:-0.02em;text-align:center;" data-en="Create a Fleece account">Créer un compte Fleece</h1>
+            <p style="margin:8px 0 0;color:var(--text-2);font-size:13.5px;text-align:center;"><span data-en="Already have an account?">Déjà un compte ?</span> <a href="#" onClick="{{ goLogin }}" style="color:var(--text);font-weight:500;text-decoration:none;" data-en="Log in">Se connecter</a>.</p>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;">
+            <button style="height:44px;display:flex;align-items:center;justify-content:center;gap:9px;border-radius:11px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:500;"><span style="font-family:'Geist Mono',monospace;font-weight:700;">G</span> Google</button>
+            <button style="height:44px;display:flex;align-items:center;justify-content:center;gap:9px;border-radius:11px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:500;"><span style="font-family:'Geist Mono',monospace;font-weight:700;">&#8997;</span> GitHub</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;margin:18px 0;"><span style="height:1px;flex:1;background:var(--border);"></span><span style="font-size:12px;color:var(--text-3);" data-en="or">ou</span><span style="height:1px;flex:1;background:var(--border);"></span></div>
+          <label style="display:block;font-size:12.5px;color:var(--text-2);margin-bottom:7px;">Email</label>
+          <input class="flc-in" placeholder="awa.diop@example.com" style="width:100%;height:46px;border-radius:11px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);font-family:inherit;font-size:14px;padding:0 14px;outline:none;margin-bottom:16px;transition:.15s;"/>
+          <label style="display:block;font-size:12.5px;color:var(--text-2);margin-bottom:7px;" data-en="Password">Mot de passe</label>
+          <div style="position:relative;margin-bottom:20px;">
+            <input class="flc-in" value="" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" type="{{ pwType }}" style="width:100%;height:46px;border-radius:11px;border:1px solid var(--border);background:var(--bg-elev);color:var(--text);font-family:inherit;font-size:14px;padding:0 44px 0 14px;outline:none;transition:.15s;"/>
+            <button onClick="{{ togglePw }}" style="position:absolute;top:0;right:0;height:46px;width:42px;border:none;background:none;color:var(--text-3);cursor:pointer;font-size:15px;">&#9673;</button>
+          </div>
+          <button onClick="{{ goCheck }}" style="width:100%;height:46px;border-radius:11px;border:none;background:var(--accent);color:#06210f;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;" style-hover="background:var(--accent-2)" data-en="Create account">Créer le compte</button>
+        </div>
+      </sc-if>
+
+      <!-- LOGIN -->
+      <sc-if value="{{ isLogin }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;max-width:392px;animation:flc-fade .35s ease;">
+          <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:26px;">
+            <span style="width:46px;height:46px;border-radius:13px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#06210f;font-weight:700;font-size:24px;margin-bottom:18px;">F</span>
+            <h1 style="margin:0;font-size:25px;font-weight:600;letter-spacing:-0.02em;text-align:center;" data-en="Welcome back">Content de vous revoir</h1>
+          </div>
+          <button onClick="{{ goOnboarding }}" style="width:100%;height:46px;border-radius:11px;border:none;background:var(--accent);color:#06210f;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;" data-en="Log in">Se connecter</button>
+        </div>
+      </sc-if>
+
+      <!-- CHECK EMAIL -->
+      <sc-if value="{{ isCheck }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;max-width:430px;text-align:center;animation:flc-fade .35s ease;">
+          <div style="width:58px;height:58px;border-radius:16px;border:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;margin:0 auto 22px;font-size:26px;">&#9993;</div>
+          <h1 style="margin:0;font-size:26px;font-weight:600;letter-spacing:-0.02em;" data-en="Check your email">Vérifiez vos emails</h1>
+          <p style="margin:10px 0 26px;color:var(--text-2);font-size:14px;line-height:1.5;"><span data-en="We just sent a verification link to">Nous venons d'envoyer un lien de vérification à</span> <span style="color:var(--text);">awa.diop@example.com</span>.</p>
+          <button onClick="{{ goConfirm }}" style="height:42px;padding:0 20px;border-radius:24px;border:none;background:var(--text);color:var(--bg);cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:600;" data-en="Confirm now">Confirmer maintenant &#8594;</button>
+        </div>
+      </sc-if>
+
+      <!-- CONFIRM -->
+      <sc-if value="{{ isConfirm }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;max-width:480px;text-align:center;animation:flc-fade .35s ease;">
+          <span style="width:52px;height:52px;border-radius:14px;background:var(--surface);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;color:var(--accent-text);font-weight:700;font-size:24px;margin-bottom:22px;">F</span>
+          <h1 style="margin:0;font-size:28px;font-weight:600;letter-spacing:-0.02em;" data-en="Account confirmation">Confirmation du compte</h1>
+          <button onClick="{{ goOnboarding }}" style="width:100%;height:52px;border-radius:13px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-size:15px;font-weight:600;" style-hover="border-color:var(--accent);background:var(--accent-soft)" data-en="Confirm account">Confirmer le compte</button>
+        </div>
+      </sc-if>
+
+    </div>
+  </sc-if>
+
+  <!-- ============ ONBOARDING (4 steps) ============ -->
+  <sc-if value="{{ isOnboarding }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;min-height:100vh;">
+      <aside style="width:230px;flex:none;background:var(--bg-elev);border-right:1px solid var(--border);display:flex;flex-direction:column;">
+        <div style="padding:16px 14px;">
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:10px;border:1px solid var(--border);background:var(--surface);">
+            <span style="width:28px;height:28px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#06210f;font-weight:700;font-size:15px;">F</span>
+            <div style="display:flex;flex-direction:column;line-height:1.25;"><span style="font-weight:600;font-size:13px;">Fleece</span><span style="font-size:11px;color:var(--text-3);white-space:nowrap;">Acme Corp</span></div>
+          </div>
+        </div>
+        <nav style="padding:4px 10px;display:flex;flex-direction:column;gap:2px;flex:1;">
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;font-size:13.5px;background:var(--accent-soft);color:var(--accent-text);font-weight:500;"><span style="font-family:'Geist Mono',monospace;font-size:13px;">&#9672;</span><span data-en="Get started">Démarrer</span></div>
+          <sc-for list="{{ sideItems }}" as="n" hint-placeholder-count="5">
+            <div style="display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;font-size:13.5px;color:var(--text-3);">{{ n.icon }} {{ n.label }}</div>
+          </sc-for>
+        </nav>
+        <div style="padding:10px;border-top:1px solid var(--border);">
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 8px;">
+            <span style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#27cf7d,#1b7e9c);flex:none;"></span>
+            <div style="display:flex;flex-direction:column;line-height:1.25;"><span style="font-size:12.5px;font-weight:500;">Awa Diop</span><span style="font-size:11px;color:var(--text-3);">awa@acme.io</span></div>
+          </div>
+        </div>
+      </aside>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+        <header style="height:56px;flex:none;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 26px;gap:14px;">
+          <span style="font-family:'Geist Mono',monospace;font-size:13px;color:var(--text-3);">Fleece / <span style="color:var(--text);" data-en="Onboarding">Onboarding</span></span>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:9px;">
+            <button onClick="{{ toggleLang }}" style="height:32px;padding:0 11px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer;font-family:'Geist Mono',monospace;font-size:12px;font-weight:500;">{{ langLabel }}</button>
+            <a href="Fleece Dashboard.dc.html" style="height:32px;display:flex;align-items:center;gap:6px;padding:0 13px;border-radius:8px;border:none;background:var(--accent);color:#06210f;text-decoration:none;font-size:13px;font-weight:600;" data-en="Go to dashboard">Aller au dashboard &#8594;</a>
+          </div>
+        </header>
+        <main style="flex:1;overflow-y:auto;padding:40px 30px 80px;">
+          <div style="max-width:760px;margin:0 auto;animation:flc-fade .3s ease;">
+            <div style="margin-bottom:8px;font-family:'Geist Mono',monospace;font-size:12px;color:var(--accent-text);text-transform:uppercase;letter-spacing:0.04em;" data-en="Welcome to Fleece">Bienvenue sur Fleece</div>
+            <h1 style="margin:0;font-size:30px;font-weight:600;letter-spacing:-0.025em;" data-en="Send your first message">Envoyez votre premier message</h1>
+            <p style="margin:8px 0 14px;color:var(--text-2);font-size:14.5px;" data-en="Four steps to go live — under 30 minutes.">Quatre étapes pour passer en production — moins de 30 minutes.</p>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:30px;">
+              <div style="flex:1;height:6px;border-radius:5px;background:var(--surface-2);overflow:hidden;"><div style="height:100%;border-radius:5px;background:var(--accent);width:{{ progress }};transition:width .4s ease;"></div></div>
+              <span style="font-family:'Geist Mono',monospace;font-size:12px;color:var(--text-2);white-space:nowrap;">{{ progressLabel }}</span>
+            </div>
+            <!-- Steps 1-4 content: workspace, API key, wallet, send message -->
+          </div>
+        </main>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:860},&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;signup&quot;,&quot;login&quot;,&quot;check&quot;,&quot;confirm&quot;,&quot;onboarding&quot;],&quot;default&quot;:&quot;signup&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { view: this.props.startView || 'signup', lang:'fr', showPw:false, step2:false, step3:false, step4:false, tab:'curl' };
+
+  componentDidMount(){ if(this.root){ this.root.dataset.theme='dark'; this.applyLang(); } }
+  componentDidUpdate(){ if(this.root) this.applyLang(); }
+  applyLang(){
+    const en=this.state.lang==='en';
+    this.root.querySelectorAll('[data-en]').forEach(n=>{
+      if(n.dataset.fr===undefined) n.dataset.fr=n.textContent;
+      n.textContent = en ? n.dataset.en : n.dataset.fr;
+    });
+  }
+
+  renderVals(){
+    const s=this.state, V=v=>this.setState({view:v});
+    const done='background:var(--accent);color:#06210f;border:1px solid var(--accent);';
+    const curr='background:transparent;color:var(--accent-text);border:1px solid var(--accent);';
+    const todo='background:transparent;color:var(--text-3);border:1px solid var(--border);';
+    const d1=true, d2=s.step2, d3=s.step3, d4=s.step4;
+    const firstOpen = !d2 ? 2 : (!d3 ? 3 : (!d4 ? 4 : 0));
+    const cs=(n,d)=> d ? done : (firstOpen===n ? curr : todo);
+    const ct=(n,d)=> d ? '&#10003;' : String(n);
+    const completed=[d1,d2,d3,d4].filter(Boolean).length;
+    const pct=Math.round(completed/4*100);
+    return {
+      rootRef: el=>{ this.root=el; },
+      isAuth: s.view!=='onboarding',
+      isSignup: s.view==='signup', isLogin: s.view==='login', isCheck: s.view==='check', isConfirm: s.view==='confirm',
+      isOnboarding: s.view==='onboarding',
+      goSignup:()=>V('signup'), goLogin:()=>V('login'), goCheck:()=>V('check'), goConfirm:()=>V('confirm'), goOnboarding:()=>V('onboarding'),
+      toggleLang:()=>this.setState({lang:s.lang==='fr'?'en':'fr'}),
+      langLabel: s.lang==='fr'?'FR':'EN',
+      togglePw:()=>this.setState({showPw:!s.showPw}),
+      pwType: s.showPw?'text':'password',
+      addKey:()=>this.setState({step2:true}), recharge:()=>this.setState({step3:true}), sendMsg:()=>this.setState({step4:true}),
+      step2:s.step2, noStep2:!s.step2, step3:s.step3, noStep3:!s.step3, step4:s.step4,
+      c1:cs(1,d1), t1:ct(1,d1), c2:cs(2,d2), t2:ct(2,d2), c3:cs(3,d3), t3:ct(3,d3), c4:cs(4,d4), t4:ct(4,d4),
+      progress: pct+'%', progressLabel: completed+'/4 '+(s.lang==='en'?'done':(completed>1?'terminées':'terminée')),
+      sideItems:[
+        {icon:'&#9993;',label:'Messages'},{icon:'&#9680;',label:'Campagnes'},{icon:'&#8984;',label:'API & Webhooks'},{icon:'&#9719;',label:'Wallet'},{icon:'&#8863;',label:'Logs'},
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

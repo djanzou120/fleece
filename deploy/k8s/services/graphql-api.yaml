@@ -1,0 +1,96 @@
+# graphql-api — Private GraphQL BFF (dashboard only, JWT session auth)
+# Built from docker/node.dockerfile ARG PKG=graphql-api
+# Exposed as LoadBalancer (dashboard access). Alternative: NodePort — see comment below.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphql-api
+  namespace: fleece
+  labels:
+    app: graphql-api
+    app.kubernetes.io/component: service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: graphql-api
+  template:
+    metadata:
+      labels:
+        app: graphql-api
+    spec:
+      containers:
+        - name: graphql-api
+          image: fleece/graphql-api:latest
+          imagePullPolicy: IfNotPresent
+          # node.dockerfile dist stage copies bundle to /usr/local/bin/$PKG without ENTRYPOINT
+          command: ["node", "/usr/local/bin/graphql-api"]
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: PORT
+              value: "4000"
+          envFrom:
+            - configMapRef:
+                name: fleece-config
+          readinessProbe:
+            tcpSocket:
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 4000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # DNS name: graphql-api (used by platform-app via NEXT_PUBLIC_GRAPHQL_URL)
+  name: graphql-api
+  namespace: fleece
+  labels:
+    app: graphql-api
+spec:
+  # LoadBalancer exposes the GraphQL API to the browser/dashboard.
+  # Alternative for bare-metal / local cluster:
+  #   type: NodePort
+  #   ports: [{port: 4000, targetPort: 4000, nodePort: 30400}]
+  type: LoadBalancer
+  selector:
+    app: graphql-api
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graphql-api-hpa
+  namespace: fleece
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: graphql-api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

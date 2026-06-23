@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;450;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:#0a0a0a}
+  [data-theme="dark"]{
+    --bg:#0a0a0a;--bg-elev:#0f0f0f;--surface:#141414;--surface-2:#1a1a1a;
+    --border:#242424;--border-soft:#1b1b1b;
+    --text:#fafafa;--text-2:#9b9b9b;--text-3:#646464;
+    --accent:#27cf7d;--accent-2:#1fa863;--accent-soft:rgba(39,207,125,0.12);--accent-text:#3ddb8c;
+    --danger:#f06363;--danger-soft:rgba(240,99,99,0.12);
+    --warn:#e3a93a;--warn-soft:rgba(227,169,58,0.12);
+    --info:#5e9bf0;--info-soft:rgba(94,155,240,0.12);
+    --shadow:0 1px 2px rgba(0,0,0,0.4);
+  }
+  [data-theme="light"]{
+    --bg:#f6f5f2;--bg-elev:#ffffff;--surface:#ffffff;--surface-2:#faf9f6;
+    --border:#e7e4de;--border-soft:#efece6;
+    --text:#161512;--text-2:#5f5d57;--text-3:#928f87;
+    --accent:#0f9d5f;--accent-2:#0c8650;--accent-soft:rgba(15,157,95,0.10);--accent-text:#0b8351;
+    --danger:#cf4646;--danger-soft:rgba(207,70,70,0.09);
+    --warn:#b6800f;--warn-soft:rgba(182,128,15,0.10);
+    --info:#2f6fd0;--info-soft:rgba(47,111,208,0.09);
+    --shadow:0 1px 2px rgba(20,18,12,0.05);
+  }
+  ::selection{background:var(--accent-soft)}
+</style>
+</helmet>
+
+<div ref="{{ rootRef }}" data-theme="dark" style="font-family:'Geist',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;">
+
+  <header style="position:sticky;top:0;z-index:10;background:color-mix(in srgb, var(--bg) 85%, transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:0 40px;height:60px;display:flex;align-items:center;gap:14px;">
+    <span style="width:30px;height:30px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#06210f;font-weight:700;font-size:16px;">F</span>
+    <div style="line-height:1.2;">
+      <div style="font-weight:600;font-size:15px;">Fleece</div>
+      <div style="font-size:11px;color:var(--text-3);font-family:'Geist Mono',monospace;">Design System v1.0</div>
+    </div>
+    <div style="margin-left:auto;">
+      <button onClick="{{ toggleTheme }}" style="width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer;font-size:14px;">{{ themeIcon }}</button>
+    </div>
+  </header>
+
+  <div style="max-width:1080px;margin:0 auto;padding:44px 40px 90px;">
+
+    <div style="margin-bottom:52px;">
+      <h1 style="margin:0 0 12px;font-size:38px;font-weight:600;letter-spacing:-0.03em;">Une API. Tous les canaux. Un seul langage visuel.</h1>
+      <p style="margin:0;color:var(--text-2);font-size:15px;max-width:62ch;line-height:1.6;">Sombre, dense et technique — pensé pour les développeurs. Monochrome neutre, un vert unique pour l'action, du monospace pour la donnée.</p>
+    </div>
+
+    <!-- COLORS -->
+    <section style="margin-bottom:52px;">
+      <h2 style="margin:0 0 8px;font-size:13px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-3);">01 — Couleurs</h2>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:26px;">
+        <sc-for list="{{ neutrals }}" as="c" hint-placeholder-count="8">
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);">
+            <div style="height:64px;background:{{ c.hex }};border-bottom:1px solid var(--border);"></div>
+            <div style="padding:10px 12px;">
+              <div style="font-size:12.5px;font-weight:500;">{{ c.name }}</div>
+              <div style="font-size:11px;color:var(--text-3);font-family:'Geist Mono',monospace;">{{ c.hex }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+        <sc-for list="{{ semantics }}" as="c" hint-placeholder-count="4">
+          <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface);">
+            <div style="height:64px;background:{{ c.hex }};"></div>
+            <div style="padding:10px 12px;">
+              <div style="font-size:12.5px;font-weight:500;">{{ c.name }}</div>
+              <div style="font-size:11px;color:var(--text-3);font-family:'Geist Mono',monospace;">{{ c.hex }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- COMPONENTS -->
+    <section>
+      <h2 style="margin:0 0 22px;font-size:13px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-3);">04 — Composants</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div style="border:1px solid var(--border);border-radius:14px;background:var(--surface);padding:18px;">
+          <div style="font-size:12px;color:var(--text-3);font-family:'Geist Mono',monospace;margin-bottom:14px;">BOUTONS</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <button style="height:34px;padding:0 15px;border-radius:8px;border:none;background:var(--accent);color:#06210f;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">Primaire</button>
+            <button style="height:34px;padding:0 15px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;cursor:pointer;">Secondaire</button>
+            <button style="height:34px;padding:0 13px;border-radius:8px;border:none;background:none;color:var(--text-2);font-family:inherit;font-size:13px;cursor:pointer;">Ghost</button>
+            <button style="height:34px;padding:0 15px;border-radius:8px;border:1px solid var(--danger);background:var(--danger-soft);color:var(--danger);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;">Danger</button>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:14px;background:var(--surface);padding:18px;">
+          <div style="font-size:12px;color:var(--text-3);font-family:'Geist Mono',monospace;margin-bottom:14px;">STATUTS</div>
+          <div style="display:flex;gap:9px;flex-wrap:wrap;">
+            <sc-for list="{{ statuses }}" as="s" hint-placeholder-count="4">
+              <span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:500;padding:3px 10px;border-radius:20px;white-space:nowrap;color:{{ s.c }};background:{{ s.b }};"><span style="width:6px;height:6px;border-radius:50%;background:{{ s.c }};"></span>{{ s.label }}</span>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1080,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  state = { theme:'dark' };
+  componentDidUpdate(){ if(this.root) this.root.dataset.theme = this.state.theme; }
+  renderVals(){
+    const s=this.state;
+    return {
+      rootRef: el=>{ this.root=el; },
+      toggleTheme:()=>this.setState({theme:s.theme==='dark'?'light':'dark'}),
+      themeIcon: s.theme==='dark'?'☀':'☾',
+      neutrals:[
+        {name:'bg',hex:'#0a0a0a'},{name:'bg-elev',hex:'#0f0f0f'},{name:'surface',hex:'#141414'},{name:'surface-2',hex:'#1a1a1a'},
+        {name:'border',hex:'#242424'},{name:'text',hex:'#fafafa'},{name:'text-2',hex:'#9b9b9b'},{name:'text-3',hex:'#646464'},
+      ],
+      semantics:[
+        {name:'accent',hex:'#27cf7d'},{name:'info',hex:'#5e9bf0'},{name:'warn',hex:'#e3a93a'},{name:'danger',hex:'#f06363'},
+      ],
+      statuses:[
+        {label:'Délivré',c:'#3ddb8c',b:'rgba(39,207,125,0.12)'},
+        {label:'Envoyé',c:'#5e9bf0',b:'rgba(94,155,240,0.12)'},
+        {label:'En file',c:'#e3a93a',b:'rgba(227,169,58,0.12)'},
+        {label:'Échec',c:'#f06363',b:'rgba(240,99,99,0.12)'},
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

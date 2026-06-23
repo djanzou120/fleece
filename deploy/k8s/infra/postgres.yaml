@@ -1,0 +1,101 @@
+# PostgreSQL — instance unique partagée par tous les services (D11).
+# Un schéma par service ; chaque service se connecte avec search_path sur son propre schéma.
+#
+# Storage: emptyDir (dev/staging). Pour la production, remplacer par un PersistentVolumeClaim.
+# Exemple PVC commenté en bas de ce fichier.
+#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: fleece
+  labels:
+    app: postgres
+    app.kubernetes.io/component: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  strategy:
+    type: Recreate   # Nécessaire avec un volume non partageable (emptyDir / RWO)
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: "fleece"
+            - name: POSTGRES_PASSWORD
+              value: "fleece"
+            - name: POSTGRES_DB
+              value: "fleece"
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "fleece", "-d", "fleece"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "fleece", "-d", "fleece"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+      volumes:
+        - name: postgres-data
+          emptyDir: {}
+          # --- Pour la production : remplacer emptyDir par ---
+          # persistentVolumeClaim:
+          #   claimName: postgres-pvc
+---
+# --- PVC pour la production (décommente et applique séparément) ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: postgres-pvc
+#   namespace: fleece
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 10Gi
+#   storageClassName: standard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: fleece
+  labels:
+    app: postgres
+    app.kubernetes.io/component: infra
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

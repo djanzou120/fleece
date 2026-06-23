@@ -1,0 +1,101 @@
+# platform-app — Next.js Dashboard (frontend)
+# Built from docker/react.dockerfile ARG PKG=platform-app
+# Next standalone mode: CMD ["node", "server.js"] already set in the Dockerfile.
+# Exposed as LoadBalancer (browser access). Alternative: NodePort.
+#
+# NOTE: NEXT_PUBLIC_GRAPHQL_URL is baked at build time in Next.js.
+# For production, rebuild the image with the real external URL of graphql-api.
+# For MVP the cluster-internal value is used; it works for SSR but not browser-direct calls
+# unless graphql-api LoadBalancer IP is accessible from the browser.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-app
+  namespace: fleece
+  labels:
+    app: platform-app
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: platform-app
+  template:
+    metadata:
+      labels:
+        app: platform-app
+    spec:
+      containers:
+        - name: platform-app
+          image: fleece/platform-app:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: PORT
+              value: "3000"
+            - name: NEXT_PUBLIC_GRAPHQL_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: fleece-config
+                  key: NEXT_PUBLIC_GRAPHQL_URL
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-app
+  namespace: fleece
+  labels:
+    app: platform-app
+spec:
+  # LoadBalancer exposes the dashboard to the browser.
+  # Alternative for bare-metal / local cluster:
+  #   type: NodePort
+  #   ports: [{port: 3000, targetPort: 3000, nodePort: 30300}]
+  type: LoadBalancer
+  selector:
+    app: platform-app
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: platform-app-hpa
+  namespace: fleece
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: platform-app
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

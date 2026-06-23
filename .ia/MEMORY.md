@@ -24,6 +24,10 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | `user-story.md` | User stories Dashboard + Intégration API (format complet + critères d'acceptation). |
 | `ARCHITECTURE.md` | Structure de fichiers + Clean Architecture + conventions réelles du dépôt. |
 | `MEMORY.md` | **Ce fichier** — mémoire/journal. |
+| `design/DESIGN.md` | **Design système complet** — tokens CSS, typographie, composants, layouts. Chargé au SessionStart. |
+| `design/Fleece Dashboard.dc.html` | Design interactif du dashboard (source claude.ai/design). |
+| `design/Fleece Auth & Onboarding.dc.html` | Design auth + onboarding 4 étapes. |
+| `design/Fleece Design System.dc.html` | Design system interactif (couleurs, typo, composants). |
 
 ## 3. Phases produit (étiquettes utilisées partout)
 
