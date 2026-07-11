@@ -1,0 +1,15 @@
+h1:KY8DUG2fBHV1WMt+nn8ukpUrplioktbIXPDXdCLEAhI=
+0001_identity.sql h1:dKMFjhV08UoIEO4N/9Lzq0ezYTzWHq155rQ8QmdVN9E=
+0002_wallet.sql h1:JD66QfNoF0Q2nxDK2e/zNv0W8Rj95ot71rsnOhUYwhA=
+0003_messaging.sql h1:GohJM38GGnpSG52azR3Rksz10Wha/oBqUozxk4Nb7rQ=
+0004_routing.sql h1:BjzxsR+1c+EjnbYa6Fe8yFJMdT/843morPkpmROFgcg=
+0005_provider.sql h1:od/ryw1QgU/ISGXAT/I/2cyo1bhU3wybcLk7q+h2joU=
+0006_webhook.sql h1:1qNqjURpbEoc3ymc09u0KOJjh2udzzsglZ44976PjSo=
+0007_campaign.sql h1:Ryyv/oQBl2GHJZo42iH9fYDzXXFHSd+A+YJs0eZw+90=
+0008_contact_intel.sql h1:WatT9CINB9bPSrWxZaWuEO6mSNnquiQSrlfynDrim0Q=
+0009_analytics.sql h1:fJy3t6TpHsTXjUoE+vXuB8Lo1hLpItSeHSTcSCyvD4Q=
+0010_webhook_schema.sql h1:aUIsjxzWnyfVAUpEJZ7iOo/y6krkET4eoxSCzbWaaeA=
+0011_identity_schema.sql h1:Mp+29qLP2W8wcr0X6yzP5zkRSXbvQVPZFxHlb/73RrE=
+0012_provider_dlr_status.sql h1:DdQqu/gFBNmxIgOXz6jT/vybgSxtJhn5BygcST23vYI=
+0013_routing_strategies.sql h1:a8Uco2YYs/vML/7gpfVwJvfGSevgjFO5dye0HtjnMaQ=
+0014_contact_intel_scoring.sql h1:bUP8Ex6yUbryWGEaVpH/966x1dl/vyq8EQQPJuMn0Xk=

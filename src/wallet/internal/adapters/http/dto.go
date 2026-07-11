@@ -2,7 +2,10 @@
 // Couche 3 (Interface Adapters, driving).
 package http
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // DebitRequest est le DTO d'entree de l'endpoint POST /debit.
 type DebitRequest struct {
@@ -67,13 +70,15 @@ func (r *RefundRequest) validate() error {
 	return nil
 }
 
-// TransactionResponse est le DTO de sortie des operations de mutation (debit/credit/refund).
+// TransactionResponse est le DTO de sortie des operations de mutation (debit/credit/refund)
+// et de lecture (GET /wallets/{workspaceId}/transactions).
 type TransactionResponse struct {
-	ID          int64  `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Kind        string `json:"kind"`
-	Amount      int64  `json:"amount"`
-	MessageID   string `json:"message_id,omitempty"`
+	ID          int64     `json:"id"`
+	WorkspaceID string    `json:"workspace_id"`
+	Kind        string    `json:"kind"`
+	Amount      int64     `json:"amount"`
+	MessageID   string    `json:"message_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // BalanceResponse est le DTO de sortie de l'endpoint GET /balance.

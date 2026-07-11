@@ -1,5 +1,5 @@
 // Couche 3 — Adapter GraphQL : point d'entrée des résolveurs.
-// Fusionne les résolveurs workspace, wallet et webhook en un map { Query, Mutation }
+// Fusionne les résolveurs workspace, wallet et webhook en un map { Query, Mutation, ... }
 // injecté dans le serveur GraphQL (Apollo / Yoga).
 
 import type { GetWorkspaceOverview } from "../../../application/use-cases/get-workspace-overview.js";
@@ -32,7 +32,11 @@ export interface ResolverDeps {
  * Construit la map complète des résolveurs GraphQL à partir des dépendances injectées.
  * La map est directement passée au serveur GraphQL (Apollo Server, GraphQL Yoga, etc.).
  *
- * Structure retournée : { Query: { ... }, Mutation: { ... } }
+ * Structure retournée :
+ *   { Query, Mutation, WebhookEndpoint }
+ *
+ * WebhookEndpoint contient les résolveurs de champ (secretPreview) qui masquent
+ * les données sensibles avant qu'elles ne quittent le BFF.
  */
 export function buildResolvers(deps: ResolverDeps) {
   const workspace = buildWorkspaceResolvers({
@@ -50,7 +54,7 @@ export function buildResolvers(deps: ResolverDeps) {
     manageWebhook: deps.manageWebhook,
   });
 
-  // Fusion des groupes Query et Mutation de chaque résolveur
+  // Fusion des groupes Query, Mutation et résolveurs de type de chaque sous-module
   return {
     Query: {
       ...workspace.Query,
@@ -61,5 +65,7 @@ export function buildResolvers(deps: ResolverDeps) {
       ...workspace.Mutation,
       ...webhook.Mutation,
     },
+    // Résolveurs de champ pour WebhookEndpoint (masquage du secret)
+    WebhookEndpoint: webhook.WebhookEndpoint,
   };
 }

@@ -55,13 +55,17 @@ type WalletBalance {
   currency: String!
 }
 
-"""Transaction du wallet (crédit ou débit)."""
+"""Transaction du wallet (crédit, débit ou remboursement)."""
 type Transaction {
   id: ID!
   workspaceId: ID!
+  """Type de transaction : credit | debit | refund."""
   type: String!
+  """Montant en centimes (unité monétaire la plus petite)."""
   amount: Float!
+  """Code devise ISO 4217 (ex. XOF, EUR) — déduit du wallet du workspace."""
   currency: String!
+  """Description lisible (kind + message_id si applicable)."""
   description: String!
   createdAt: String!
 }
@@ -98,6 +102,12 @@ type WebhookEndpoint {
   events: [String!]!
   active: Boolean!
   createdAt: String!
+  """
+  Aperçu masqué du secret de signature webhook.
+  Format : ••••<4 derniers caractères> ou •••••••• si le secret est absent.
+  Le secret complet n'est JAMAIS exposé via l'API GraphQL.
+  """
+  secretPreview: String
 }
 
 # ---------------------------------------------------------------------------
@@ -114,6 +124,12 @@ type Query {
   """Récupère le solde du wallet d'un workspace."""
   walletBalance(workspaceId: ID!): WalletBalance!
 
+  """
+  Liste paginée des transactions du wallet d'un workspace (cursor-based).
+  La pagination est appliquée côté BFF sur la liste complète retournée par le Wallet Service.
+  """
+  transactions(workspaceId: ID!, cursor: String, limit: Int): TransactionPage!
+
   """Liste paginée des messages d'un workspace (cursor-based)."""
   messages(workspaceId: ID!, cursor: String, limit: Int): MessagePage!
 
@@ -126,11 +142,20 @@ type Query {
 # ---------------------------------------------------------------------------
 
 type Mutation {
+  """Crée un nouveau workspace pour l'utilisateur authentifié."""
+  createWorkspace(name: String!, country: String!): Workspace!
+
   """Crée une nouvelle clé API pour un workspace."""
   createApiKey(workspaceId: ID!, name: String!): CreateApiKeyResult!
 
   """Révoque une clé API (désactivation immédiate)."""
   revokeApiKey(workspaceId: ID!, keyId: ID!): Boolean!
+
+  """
+  Effectue la rotation d'une clé API : révoque l'ancienne et crée une nouvelle.
+  Retourne la nouvelle clé brute (affichée une seule fois) et les métadonnées.
+  """
+  rotateApiKey(workspaceId: ID!, keyId: ID!): CreateApiKeyResult!
 
   """Enregistre un nouvel endpoint webhook."""
   createWebhookEndpoint(workspaceId: ID!, url: String!, events: [String!]!): WebhookEndpoint!

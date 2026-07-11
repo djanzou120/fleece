@@ -3,39 +3,68 @@
  * DASH-03 — Wallet page.
  *
  * Features:
- * - Current balance (walletBalance query), formatted with currency
- * - "Recharger" button (modal placeholder — top-up mutation does not exist in SDL)
- * - Transaction history (empty-state + debt note)
+ * - Current balance (walletBalance query), formatted with currency (centimes/100)
+ * - "Recharger" button (modal placeholder — top-up mutation not yet in SDL)
+ * - Transaction history (real Query.transactions — closes D-E01 / T-008.1b)
+ *   Paginated list: type badge / amount (centimes÷100 via Intl) / description / date.
+ *   Loading / empty-state / error-state / retry / load-more.
  *
- * DEBT — Query.transactions: The SDL defines TransactionPage and Transaction types
- * but does NOT expose a `transactions(workspaceId: ID!, ...)` Query field.
- * The history section shows an empty state with a clear debt notice.
- * BFF TODO: expose `transactions(workspaceId: ID!, cursor: String, limit: Int): TransactionPage!`
- *
- * DEBT — Top-up mutation: No `topUp` or `createPayment` mutation exists in the SDL.
- * The "Recharger" modal is a placeholder with Mobile Money / Stripe options.
- * BFF TODO: expose a top-up flow (Mobile Money + Stripe adapters).
+ * Session: workspaceId resolved server-side in layout → injected via WorkspaceContext.
+ * Replaces the WORKSPACE_ID_FROM_SESSION placeholder (D-E06 / T-008.4).
  *
  * Acceptance criteria (DASH-03):
- * - Balance visible, formatted with currency and cent conversion (÷100)
- * - Loading / error states for balance
- * - History empty-state with debt annotation
+ * - Balance visible, formatted with currency and cent conversion
+ * - Transaction history: real data from Query.transactions
+ * - Loading / error states for both balance and history
+ * - Empty-state if no transactions (no static forced empty-state)
  * - WCAG 2.1 AA
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from '@/components/Header';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { Dialog } from '@/components/ui/Dialog';
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from '@/components/ui/Table';
 import { LoadingCard, LoadingSpinner } from '@/components/states/LoadingState';
 import { EmptyState } from '@/components/states/EmptyState';
 import { ErrorState } from '@/components/states/ErrorState';
 import { gqlClient } from '@/lib/graphql/client';
-import { WALLET_BALANCE_QUERY } from '@/lib/graphql/queries';
-import type { WalletBalance, WalletBalanceQueryResponse } from '@/lib/graphql/types';
-import { formatBalance } from '@/lib/utils';
+import { WALLET_BALANCE_QUERY, TRANSACTIONS_QUERY } from '@/lib/graphql/queries';
+import type {
+  WalletBalance,
+  WalletBalanceQueryResponse,
+  Transaction,
+  TransactionsQueryResponse,
+} from '@/lib/graphql/types';
+import { useWorkspaceId } from '@/lib/context/WorkspaceContext';
+import { formatBalance, formatDateTime } from '@/lib/utils';
 
-const WORKSPACE_ID = 'WORKSPACE_ID_FROM_SESSION';
+const PAGE_SIZE = 20;
+
+/* --------------------------------------------------------------------------- */
+/* Transaction type badge                                                         */
+/* --------------------------------------------------------------------------- */
+function TransactionTypeBadge({ type }: { type: string }) {
+  const map: Record<string, { label: string; variant: 'success' | 'warn' | 'info' | 'neutral' }> = {
+    credit:  { label: 'Crédit',   variant: 'success' },
+    debit:   { label: 'Débit',    variant: 'warn'    },
+    refund:  { label: 'Remb.',    variant: 'info'    },
+  };
+  const config = map[type.toLowerCase()] ?? { label: type, variant: 'neutral' as const };
+  return <Badge variant={config.variant}>{config.label}</Badge>;
+}
+
+/* --------------------------------------------------------------------------- */
+/* Transaction amount — sign derived from type (credit/refund +, debit -)       */
+/* --------------------------------------------------------------------------- */
+function formatTxAmount(amount: number, currency: string, type: string): string {
+  const isCredit = type === 'credit' || type === 'refund';
+  const formatted = formatBalance(Math.abs(amount), currency);
+  return isCredit ? `+${formatted}` : `-${formatted}`;
+}
 
 /* --------------------------------------------------------------------------- */
 /* Top-up modal — placeholder (mutation not yet in SDL)                          */
@@ -46,7 +75,7 @@ function TopUpModal({ open, onClose, currency }: { open: boolean; onClose: () =>
   return (
     <Dialog open={open} onClose={onClose} title="Recharger le wallet">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {/* Debt notice */}
+        {/* Placeholder notice */}
         <div
           role="status"
           style={{
@@ -60,8 +89,8 @@ function TopUpModal({ open, onClose, currency }: { open: boolean; onClose: () =>
           }}
         >
           <strong>Note :</strong> La mutation de rechargement n'est pas encore exposée par le BFF.
-          Cette interface est un aperçu UX. Connectez le fournisseur de paiement (Mobile Money / Stripe)
-          côté backend pour activer cette fonctionnalité.
+          Cette interface est un aperçu UX. Connectez le fournisseur de paiement
+          (Mobile Money / Stripe) côté backend pour activer cette fonctionnalité.
         </div>
 
         <p style={{ fontSize: '13px', color: 'var(--text-2)' }}>
@@ -69,117 +98,77 @@ function TopUpModal({ open, onClose, currency }: { open: boolean; onClose: () =>
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {/* Mobile Money option */}
-          <button
-            disabled
-            aria-disabled="true"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '14px',
-              borderRadius: '9px',
-              border: `1px solid ${isAfrica ? 'var(--accent)' : 'var(--border)'}`,
-              backgroundColor: isAfrica ? 'var(--accent-soft)' : 'var(--surface)',
-              cursor: 'not-allowed',
-              opacity: 0.7,
-              textAlign: 'left',
-            }}
-          >
-            <span
-              aria-hidden="true"
+          {[
+            {
+              icon: '📱',
+              label: 'Mobile Money',
+              desc: 'MTN MoMo, Orange Money, Wave — Afrique',
+              preferred: isAfrica,
+            },
+            {
+              icon: '💳',
+              label: 'Stripe',
+              desc: 'Carte bancaire — Europe',
+              preferred: !isAfrica,
+            },
+          ].map((opt) => (
+            <button
+              key={opt.label}
+              disabled
+              aria-disabled="true"
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
-                backgroundColor: 'var(--warn-soft)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '18px',
+                gap: '12px',
+                padding: '14px',
+                borderRadius: '9px',
+                border: `1px solid ${opt.preferred ? 'var(--accent)' : 'var(--border)'}`,
+                backgroundColor: opt.preferred ? 'var(--accent-soft)' : 'var(--surface)',
+                cursor: 'not-allowed',
+                opacity: 0.7,
+                textAlign: 'left',
+                width: '100%',
               }}
             >
-              📱
-            </span>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Mobile Money
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>
-                MTN MoMo, Orange Money, Wave — Afrique
-              </div>
-            </div>
-            {isAfrica && (
               <span
+                aria-hidden="true"
                 style={{
-                  marginLeft: 'auto',
-                  fontSize: '10px',
-                  color: 'var(--accent-text)',
-                  backgroundColor: 'var(--accent-soft)',
-                  padding: '2px 8px',
-                  borderRadius: '20px',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  backgroundColor: opt.preferred ? 'var(--accent-soft)' : 'var(--surface)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  border: '1px solid var(--border)',
                 }}
               >
-                Recommandé
+                {opt.icon}
               </span>
-            )}
-          </button>
-
-          {/* Stripe option */}
-          <button
-            disabled
-            aria-disabled="true"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '14px',
-              borderRadius: '9px',
-              border: `1px solid ${!isAfrica ? 'var(--accent)' : 'var(--border)'}`,
-              backgroundColor: !isAfrica ? 'var(--accent-soft)' : 'var(--surface)',
-              cursor: 'not-allowed',
-              opacity: 0.7,
-              textAlign: 'left',
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
-                backgroundColor: 'var(--info-soft)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '18px',
-              }}
-            >
-              💳
-            </span>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
-                Stripe
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                  {opt.label}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>{opt.desc}</div>
               </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-3)' }}>
-                Carte bancaire — Europe
-              </div>
-            </div>
-            {!isAfrica && (
-              <span
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: '10px',
-                  color: 'var(--accent-text)',
-                  backgroundColor: 'var(--accent-soft)',
-                  padding: '2px 8px',
-                  borderRadius: '20px',
-                }}
-              >
-                Recommandé
-              </span>
-            )}
-          </button>
+              {opt.preferred && (
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    fontSize: '10px',
+                    color: 'var(--accent-text)',
+                    backgroundColor: 'var(--accent-soft)',
+                    padding: '2px 8px',
+                    borderRadius: '20px',
+                    flexShrink: 0,
+                  }}
+                >
+                  Recommandé
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -245,7 +234,7 @@ function BalanceCard({
                 {formatBalance(balance.balance, balance.currency)}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' }}>
-                Devise : {balance.currency} · Montant en centimes stocké : {balance.balance.toLocaleString()}
+                Devise : {balance.currency}
               </div>
             </div>
             <Button variant="primary" onClick={onTopUp} aria-label="Recharger le wallet">
@@ -262,17 +251,35 @@ function BalanceCard({
 /* Main page                                                                     */
 /* --------------------------------------------------------------------------- */
 export default function WalletPage() {
+  // workspaceId resolved server-side by dashboard layout — no placeholder needed.
+  const workspaceId = useWorkspaceId();
+
+  // Balance state
   const [balance, setBalance] = useState<WalletBalance | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(true);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+
+  // Transaction history state
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [loadingTx, setLoadingTx] = useState(true);
+  const [loadingMoreTx, setLoadingMoreTx] = useState(false);
+  const [txError, setTxError] = useState<string | null>(null);
+
   const [topUpOpen, setTopUpOpen] = useState(false);
 
   const fetchBalance = useCallback(async () => {
+    if (!workspaceId) {
+      setBalanceError('Session non résolue. Veuillez vous reconnecter.');
+      setLoadingBalance(false);
+      return;
+    }
     setLoadingBalance(true);
     setBalanceError(null);
     try {
       const data = await gqlClient.query<WalletBalanceQueryResponse>(WALLET_BALANCE_QUERY, {
-        workspaceId: WORKSPACE_ID,
+        workspaceId,
       });
       setBalance(data.walletBalance);
     } catch (err) {
@@ -280,9 +287,40 @@ export default function WalletPage() {
     } finally {
       setLoadingBalance(false);
     }
-  }, []);
+  }, [workspaceId]);
+
+  const fetchTransactions = useCallback(async (cursor?: string) => {
+    if (!workspaceId) {
+      setTxError('Session non résolue. Veuillez vous reconnecter.');
+      setLoadingTx(false);
+      return;
+    }
+    if (!cursor) setLoadingTx(true);
+    else setLoadingMoreTx(true);
+    setTxError(null);
+    try {
+      const data = await gqlClient.query<TransactionsQueryResponse>(TRANSACTIONS_QUERY, {
+        workspaceId,
+        cursor: cursor ?? null,
+        limit: PAGE_SIZE,
+      });
+      if (cursor) {
+        setTransactions((prev) => [...prev, ...data.transactions.items]);
+      } else {
+        setTransactions(data.transactions.items);
+      }
+      setNextCursor(data.transactions.pageInfo.nextCursor);
+      setHasNextPage(data.transactions.pageInfo.hasNextPage);
+    } catch (err) {
+      setTxError(err instanceof Error ? err.message : 'Impossible de charger les transactions.');
+    } finally {
+      setLoadingTx(false);
+      setLoadingMoreTx(false);
+    }
+  }, [workspaceId]);
 
   useEffect(() => { fetchBalance(); }, [fetchBalance]);
+  useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
 
   return (
     <>
@@ -329,37 +367,88 @@ export default function WalletPage() {
           onTopUp={() => setTopUpOpen(true)}
         />
 
-        {/* Transaction history */}
+        {/* Transaction history — real data from Query.transactions (closes D-E01) */}
         <Card>
           <CardHeader>
             <CardTitle>Historique des transactions</CardTitle>
           </CardHeader>
           <CardContent style={{ padding: 0 }}>
-            <EmptyState
-              title="Historique non disponible"
-              description="L'historique des transactions sera disponible prochainement. La query Query.transactions doit être exposée par le BFF GraphQL."
-              icon="📋"
-              compact
-            />
-            {/* DEBT annotation for developers */}
-            <div
-              style={{
-                margin: '0 20px 20px',
-                padding: '10px 12px',
-                backgroundColor: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                fontSize: '11px',
-                color: 'var(--text-3)',
-                fontFamily: 'var(--font-geist-mono, monospace)',
-              }}
-              aria-hidden="true"
-            >
-              DEBT BFF: expose{' '}
-              <code style={{ color: 'var(--warn)' }}>
-                Query.transactions(workspaceId: ID!, cursor: String, limit: Int): TransactionPage!
-              </code>
-            </div>
+            {loadingTx && <LoadingCard />}
+            {!loadingTx && txError && (
+              <ErrorState message={txError} onRetry={() => fetchTransactions()} />
+            )}
+            {!loadingTx && !txError && transactions.length === 0 && (
+              <EmptyState
+                title="Aucune transaction"
+                description="Les crédits, débits et remboursements de votre workspace apparaîtront ici."
+                icon="receipt"
+                compact
+              />
+            )}
+            {!loadingTx && !txError && transactions.length > 0 && (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Montant</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.map((tx) => (
+                      <TableRow key={tx.id} hoverable>
+                        <TableCell>
+                          <TransactionTypeBadge type={tx.type} />
+                        </TableCell>
+                        <TableCell
+                          style={{
+                            fontVariantNumeric: 'tabular-nums',
+                            fontWeight: 500,
+                            color:
+                              tx.type === 'debit'
+                                ? 'var(--danger)'
+                                : 'var(--accent-text)',
+                            fontFamily: 'var(--font-geist-mono, monospace)',
+                            fontSize: '13px',
+                          }}
+                        >
+                          <span aria-label={`Montant : ${formatTxAmount(tx.amount, tx.currency, tx.type)}`}>
+                            {formatTxAmount(tx.amount, tx.currency, tx.type)}
+                          </span>
+                        </TableCell>
+                        <TableCell
+                          style={{
+                            color: 'var(--text-2)',
+                            fontSize: '12px',
+                            maxWidth: '280px',
+                          }}
+                        >
+                          {tx.description}
+                        </TableCell>
+                        <TableCell style={{ color: 'var(--text-3)', fontSize: '12px' }}>
+                          {formatDateTime(tx.createdAt)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {hasNextPage && (
+                  <div style={{ padding: '16px', textAlign: 'center' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => fetchTransactions(nextCursor ?? undefined)}
+                      loading={loadingMoreTx}
+                      disabled={loadingMoreTx}
+                    >
+                      Charger plus
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

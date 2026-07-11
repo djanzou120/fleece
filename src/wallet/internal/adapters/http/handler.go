@@ -30,12 +30,18 @@ type getBalanceUseCase interface {
 	Execute(ctx context.Context, workspaceID string) (*domain.Wallet, error)
 }
 
+// listTransactionsUseCase est l'interface locale du use case ListTransactions.
+type listTransactionsUseCase interface {
+	Execute(ctx context.Context, workspaceID string) ([]*domain.WalletTransaction, error)
+}
+
 // WalletHandler regroupe les handlers REST du service wallet.
 type WalletHandler struct {
-	debit      debitWalletUseCase
-	credit     creditWalletUseCase
-	refund     refundUseCase
-	getBalance getBalanceUseCase
+	debit            debitWalletUseCase
+	credit           creditWalletUseCase
+	refund           refundUseCase
+	getBalance       getBalanceUseCase
+	listTransactions listTransactionsUseCase
 }
 
 // NewWalletHandler cree un WalletHandler avec les use cases injectes.
@@ -44,12 +50,14 @@ func NewWalletHandler(
 	credit creditWalletUseCase,
 	refund refundUseCase,
 	getBalance getBalanceUseCase,
+	listTransactions listTransactionsUseCase,
 ) *WalletHandler {
 	return &WalletHandler{
-		debit:      debit,
-		credit:     credit,
-		refund:     refund,
-		getBalance: getBalance,
+		debit:            debit,
+		credit:           credit,
+		refund:           refund,
+		getBalance:       getBalance,
+		listTransactions: listTransactions,
 	}
 }
 
@@ -98,6 +106,7 @@ func (h *WalletHandler) Debit(w http.ResponseWriter, r *http.Request) {
 		Kind:        string(txn.Kind),
 		Amount:      txn.Amount,
 		MessageID:   txn.MessageID,
+		CreatedAt:   txn.CreatedAt,
 	})
 }
 
@@ -129,6 +138,7 @@ func (h *WalletHandler) Credit(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: txn.WorkspaceID,
 		Kind:        string(txn.Kind),
 		Amount:      txn.Amount,
+		CreatedAt:   txn.CreatedAt,
 	})
 }
 
@@ -162,6 +172,7 @@ func (h *WalletHandler) RefundHandler(w http.ResponseWriter, r *http.Request) {
 		Kind:        string(txn.Kind),
 		Amount:      txn.Amount,
 		MessageID:   txn.MessageID,
+		CreatedAt:   txn.CreatedAt,
 	})
 }
 
@@ -189,6 +200,41 @@ func (h *WalletHandler) Balance(w http.ResponseWriter, r *http.Request) {
 		Balance:     wallet.Balance.Amount,
 		Currency:    wallet.Balance.Currency,
 	})
+}
+
+// Transactions traite GET /wallets/{workspaceId}/transactions.
+//
+// Retourne la liste des transactions du workspace identifie par le segment de
+// chemin {workspaceId}, triees par date decroissante. La reponse est toujours
+// un tableau JSON (vide si aucune transaction). Codes HTTP :
+//   - 400 si workspaceId est absent du chemin.
+//   - 500 sur erreur interne.
+func (h *WalletHandler) Transactions(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.PathValue("workspaceId")
+	if workspaceID == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "workspaceId est requis"})
+		return
+	}
+
+	txns, err := h.listTransactions.Execute(r.Context(), workspaceID)
+	if err != nil {
+		log.Printf("handler: list transactions workspace=%s: %v", workspaceID, err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "erreur interne"})
+		return
+	}
+
+	resp := make([]TransactionResponse, 0, len(txns))
+	for _, t := range txns {
+		resp = append(resp, TransactionResponse{
+			ID:          t.ID,
+			WorkspaceID: t.WorkspaceID,
+			Kind:        string(t.Kind),
+			Amount:      t.Amount,
+			MessageID:   t.MessageID,
+			CreatedAt:   t.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleError centralise le mappage des erreurs domaine en codes HTTP.

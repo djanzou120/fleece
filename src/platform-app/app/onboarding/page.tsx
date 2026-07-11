@@ -17,8 +17,12 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/Toast';
 import { gqlClient } from '@/lib/graphql/client';
-import { CREATE_API_KEY_MUTATION } from '@/lib/graphql/queries';
-import type { CreateApiKeyMutationResponse, CreateApiKeyResult } from '@/lib/graphql/types';
+import { CREATE_API_KEY_MUTATION, CREATE_WORKSPACE_MUTATION } from '@/lib/graphql/queries';
+import type {
+  CreateApiKeyMutationResponse,
+  CreateApiKeyResult,
+  CreateWorkspaceMutationResponse,
+} from '@/lib/graphql/types';
 
 /* --------------------------------------------------------------------------- */
 /* Stepper indicator                                                              */
@@ -117,14 +121,15 @@ interface WorkspaceStepData {
 function Step1Workspace({
   onNext,
 }: {
-  onNext: (data: WorkspaceStepData) => void;
+  onNext: (workspaceId: string) => void;
 }) {
   const [name, setName] = useState('');
   const [country, setCountry] = useState('');
   const [errors, setErrors] = useState<Partial<WorkspaceStepData>>({});
+  const [loading, setLoading] = useState(false);
   const { toast } = useToast();
 
-  const handleNext = (e: React.FormEvent) => {
+  const handleNext = async (e: React.FormEvent) => {
     e.preventDefault();
     const next: typeof errors = {};
     if (!name.trim()) next.name = 'Le nom du workspace est requis.';
@@ -132,10 +137,19 @@ function Step1Workspace({
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
-    // In a real flow: call a createWorkspace mutation or Better Auth workspace creation.
-    // Not in the current SDL — BFF TODO.
-    toast('Workspace configuré !', 'success');
-    onNext({ name: name.trim(), country: country.trim() });
+    setLoading(true);
+    try {
+      const data = await gqlClient.mutate<CreateWorkspaceMutationResponse>(
+        CREATE_WORKSPACE_MUTATION,
+        { name: name.trim(), country: country.trim() },
+      );
+      toast('Workspace créé !', 'success');
+      onNext(data.createWorkspace.id);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erreur lors de la création du workspace.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -214,7 +228,14 @@ function Step1Workspace({
           </span>
         )}
       </div>
-      <Button type="submit" variant="primary" size="lg" style={{ width: '100%', marginTop: '8px' }}>
+      <Button
+        type="submit"
+        variant="primary"
+        size="lg"
+        loading={loading}
+        disabled={loading}
+        style={{ width: '100%', marginTop: '8px' }}
+      >
         Continuer
       </Button>
     </form>
@@ -495,8 +516,8 @@ function Step4SendMessage({ apiKeyPrefix }: { apiKeyPrefix?: string }) {
 /* --------------------------------------------------------------------------- */
 export default function OnboardingPage() {
   const [step, setStep] = useState(1);
-  // Placeholder workspaceId — in production, returned by createWorkspace mutation
-  const [workspaceId] = useState('WORKSPACE_ID_FROM_SESSION');
+  // workspaceId is set after createWorkspace succeeds in Step 1.
+  const [workspaceId, setWorkspaceId] = useState('');
   const [apiKeyResult, setApiKeyResult] = useState<CreateApiKeyResult | null>(null);
 
   return (
@@ -560,7 +581,7 @@ export default function OnboardingPage() {
         >
           {step === 1 && (
             <Step1Workspace
-              onNext={() => setStep(2)}
+              onNext={(id) => { setWorkspaceId(id); setStep(2); }}
             />
           )}
           {step === 2 && (

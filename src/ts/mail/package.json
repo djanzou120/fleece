@@ -1,5 +1,5 @@
 {
-    "name": "@anthill/mail",
+    "name": "@fleece/mail",
     "version": "0.0.0",
     "dependencies": {
         "resend": "^4.0.1"

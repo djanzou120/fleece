@@ -66,10 +66,19 @@ kubectl rollout status deployment/postgres -n fleece
 
 ### 5. ConfigMaps for Atlas migrations
 
-The migration files and atlas.hcl are not embedded in the bastion image.
-Create ConfigMaps from the repository files before running the Job:
+The migration files and `atlas.hcl` are not embedded in the bastion image.
+Use the dedicated Makefile target to create or update both ConfigMaps from
+the repository files before running the Job (idempotent — safe to re-run
+after adding new migration files):
 
 ```sh
+make k8s-configmaps
+```
+
+This is equivalent to (and replaces) the former manual commands:
+
+```sh
+# Equivalent — now automated by make k8s-configmaps
 kubectl create configmap atlas-migrations \
   --from-file=migrations/ \
   -n fleece \

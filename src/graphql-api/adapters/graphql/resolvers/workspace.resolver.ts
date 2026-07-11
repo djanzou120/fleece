@@ -8,7 +8,7 @@ import type { ListApiKeys } from "../../../application/use-cases/list-api-keys.j
 import type { IdentityClient } from "../../../application/ports/output/clients.js";
 
 // ---------------------------------------------------------------------------
-// Types GraphQL locaux (argments extraits du schéma)
+// Types GraphQL locaux (arguments extraits du schéma)
 // ---------------------------------------------------------------------------
 
 interface WorkspaceArgs {
@@ -19,12 +19,22 @@ interface ApiKeysArgs {
   workspaceId: string;
 }
 
+interface CreateWorkspaceArgs {
+  name: string;
+  country: string;
+}
+
 interface CreateApiKeyArgs {
   workspaceId: string;
   name: string;
 }
 
 interface RevokeApiKeyArgs {
+  workspaceId: string;
+  keyId: string;
+}
+
+interface RotateApiKeyArgs {
   workspaceId: string;
   keyId: string;
 }
@@ -78,6 +88,19 @@ export function buildWorkspaceResolvers(deps: WorkspaceResolverDeps) {
 
     Mutation: {
       /**
+       * Crée un nouveau workspace pour l'utilisateur authentifié.
+       * Appelle auth-api POST /workspaces avec {name, country}.
+       * TODO(production): auth-api doit résoudre l'owner depuis le token de session.
+       */
+      createWorkspace: async (
+        _parent: unknown,
+        args: CreateWorkspaceArgs,
+        ctx: ApiContext,
+      ) => {
+        return identityClient.createWorkspace(ctx, args.name, args.country);
+      },
+
+      /**
        * Crée une nouvelle clé API.
        * Retourne rawKey (affiché une seule fois) + métadonnées.
        */
@@ -100,6 +123,19 @@ export function buildWorkspaceResolvers(deps: WorkspaceResolverDeps) {
       ) => {
         await identityClient.revokeApiKey(ctx, args.workspaceId, args.keyId);
         return true;
+      },
+
+      /**
+       * Effectue la rotation d'une clé API : révoque l'ancienne, crée une nouvelle.
+       * Retourne rawKey (affiché une seule fois) + métadonnées de la nouvelle clé.
+       * Route auth-api : POST /workspaces/{workspaceId}/api-keys/{keyId}/rotate
+       */
+      rotateApiKey: async (
+        _parent: unknown,
+        args: RotateApiKeyArgs,
+        ctx: ApiContext,
+      ) => {
+        return identityClient.rotateApiKey(ctx, args.workspaceId, args.keyId);
       },
     },
   };

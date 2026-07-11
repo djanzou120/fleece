@@ -5,6 +5,12 @@
  * These are hand-authored to mirror the SDL exactly (offline — no codegen).
  * DEBT: Once npm install is available, wire up @graphql-codegen/typescript
  * (configured in src/graphql/) to auto-generate this file.
+ *
+ * Last updated: aligned to SDL after BFF added:
+ *   - Query.transactions (DASH-03 / D-E01)
+ *   - Mutation.rotateApiKey (DASH-02 / D-E03)
+ *   - Mutation.createWorkspace (DASH-01 / T-008.1f)
+ *   - WebhookEndpoint.secretPreview (DASH-04 / D-E02)
  */
 
 /* --------------------------------------------------------------------------- */
@@ -66,9 +72,13 @@ export interface WalletBalance {
 export interface Transaction {
   id: ID;
   workspaceId: ID;
+  /** Transaction type: credit | debit | refund */
   type: string;
+  /** Amount in smallest currency unit (centimes). Always positive — sign derived from type. */
   amount: number;
+  /** ISO 4217 currency code */
   currency: string;
+  /** Human-readable description (e.g. "Message SMS to +221XXXXXXXXX") */
   description: string;
   createdAt: string;
 }
@@ -109,9 +119,13 @@ export interface WebhookEndpoint {
   events: string[];
   active: boolean;
   createdAt: string;
-  // NOTE: `secret` is NOT in the current SDL (see schema.graphql).
-  // DEBT BFF: add `secret: String` to WebhookEndpoint in the SDL and expose it
-  // via the resolver so the dashboard can display the masked signing secret.
+  /**
+   * Masked preview of the HMAC signing secret.
+   * Format: ••••<last 4 chars> or •••••••• if secret unavailable.
+   * The full secret is NEVER exposed via the GraphQL API.
+   * Added to SDL: BFF exposes WebhookEndpoint.secretPreview — closes D-E02.
+   */
+  secretPreview?: string | null;
 }
 
 /* --------------------------------------------------------------------------- */
@@ -130,6 +144,11 @@ export interface WalletBalanceQueryResponse {
   walletBalance: WalletBalance;
 }
 
+/** DASH-03 / D-E01: Transaction history query response. */
+export interface TransactionsQueryResponse {
+  transactions: TransactionPage;
+}
+
 export interface MessagesQueryResponse {
   messages: MessagePage;
 }
@@ -142,12 +161,25 @@ export interface WebhookEndpointsQueryResponse {
 /* Mutation response shapes                                                       */
 /* --------------------------------------------------------------------------- */
 
+/** DASH-01 / T-008.1f: Create workspace during onboarding. */
+export interface CreateWorkspaceMutationResponse {
+  createWorkspace: Workspace;
+}
+
 export interface CreateApiKeyMutationResponse {
   createApiKey: CreateApiKeyResult;
 }
 
 export interface RevokeApiKeyMutationResponse {
   revokeApiKey: boolean;
+}
+
+/**
+ * DASH-02 / D-E03: Atomic API key rotation.
+ * Returns the same shape as createApiKey (rawKey displayed once).
+ */
+export interface RotateApiKeyMutationResponse {
+  rotateApiKey: CreateApiKeyResult;
 }
 
 export interface CreateWebhookEndpointMutationResponse {

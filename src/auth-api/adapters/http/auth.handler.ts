@@ -29,7 +29,8 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", () => {
       try {
-        const raw = Buffer.concat(chunks).toString("utf8");
+        // Cast needed for TypeScript 5.9+ strict Uint8Array<ArrayBuffer> variance.
+        const raw = Buffer.concat(chunks as unknown as Uint8Array[]).toString("utf8");
         resolve(raw.length > 0 ? (JSON.parse(raw) as unknown) : {});
       } catch {
         reject(new ApiError("VALIDATION_ERROR", "Corps JSON invalide", 400));

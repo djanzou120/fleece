@@ -87,9 +87,12 @@ func main() {
 	getBalanceUC := &usecases.GetBalance{
 		Wallets: walletRepo,
 	}
+	listTransactionsUC := &usecases.ListTransactions{
+		Txns: txnRepo,
+	}
 
 	// --- Couche 3 : adapter HTTP (driving) ---
-	handler := adapterhttp.NewWalletHandler(debitUC, creditUC, refundUC, getBalanceUC)
+	handler := adapterhttp.NewWalletHandler(debitUC, creditUC, refundUC, getBalanceUC, listTransactionsUC)
 
 	// --- Couche 4 : serveur HTTP ---
 	srv := httpserver.New(":" + cfg.Port)
@@ -97,6 +100,7 @@ func main() {
 	srv.HandleFunc("POST /debit", handler.Debit)
 	srv.HandleFunc("POST /credit", handler.Credit)
 	srv.HandleFunc("POST /refund", handler.RefundHandler)
+	srv.HandleFunc("GET /wallets/{workspaceId}/transactions", handler.Transactions)
 	// Route de sante minimale.
 	srv.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

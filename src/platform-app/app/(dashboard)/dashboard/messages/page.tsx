@@ -18,11 +18,12 @@ import { gqlClient } from '@/lib/graphql/client';
 import { MESSAGES_QUERY } from '@/lib/graphql/queries';
 import type { Message, MessagesQueryResponse } from '@/lib/graphql/types';
 import { formatDateTime, truncate } from '@/lib/utils';
+import { useWorkspaceId } from '@/lib/context/WorkspaceContext';
 
-const WORKSPACE_ID = 'WORKSPACE_ID_FROM_SESSION';
 const PAGE_SIZE = 20;
 
 export default function MessagesPage() {
+  const workspaceId = useWorkspaceId();
   const [messages, setMessages] = useState<Message[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasNextPage, setHasNextPage] = useState(false);
@@ -31,12 +32,13 @@ export default function MessagesPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchMessages = useCallback(async (cursor?: string) => {
+    if (!workspaceId) return;
     if (!cursor) setLoading(true);
     else setLoadingMore(true);
     setFetchError(null);
     try {
       const data = await gqlClient.query<MessagesQueryResponse>(MESSAGES_QUERY, {
-        workspaceId: WORKSPACE_ID,
+        workspaceId,
         cursor: cursor ?? null,
         limit: PAGE_SIZE,
       });
@@ -53,7 +55,7 @@ export default function MessagesPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => { fetchMessages(); }, [fetchMessages]);
 

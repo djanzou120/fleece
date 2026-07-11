@@ -6,16 +6,14 @@
  * - List all API keys (table: name, prefix, status, createdAt, expiresAt)
  * - Create key (modal → name input → displays rawKey ONCE via CreateApiKeyResult)
  * - Revoke key (confirm dialog → revokeApiKey mutation)
- * - Rotate key (revoke + create, see DEBT note below)
+ * - Rotate key (ATOMIC — single rotateApiKey mutation, closes D-E03 / T-008.1a)
  *
- * DEBT — rotateApiKey: The SDL has no `rotateApiKey` mutation.
- * We implement "Rotate" as revoke(keyId) then createApiKey(name) chained.
- * This is not atomic (there is a brief window with no valid key).
- * BFF TODO: expose a dedicated `rotateApiKey(workspaceId, keyId)` mutation
- * that handles the grace period (e.g. keep old key valid for N minutes).
+ * Session: workspaceId resolved server-side in layout → injected via WorkspaceContext.
+ * Replaces the WORKSPACE_ID_FROM_SESSION placeholder (D-E06 / T-008.4).
  *
  * Acceptance criteria (DASH-02):
  * - rawKey displayed only once, with copy button
+ * - Rotate is atomic (single BFF mutation, no revoke+create race condition)
  * - Revoke takes effect immediately
  * - Loading / empty / error states present
  * - WCAG 2.1 AA: keyboard nav, labels, contrast
@@ -39,21 +37,21 @@ import {
   API_KEYS_QUERY,
   CREATE_API_KEY_MUTATION,
   REVOKE_API_KEY_MUTATION,
+  ROTATE_API_KEY_MUTATION,
 } from '@/lib/graphql/queries';
 import type {
   ApiKey,
   ApiKeysQueryResponse,
   CreateApiKeyMutationResponse,
   RevokeApiKeyMutationResponse,
+  RotateApiKeyMutationResponse,
   CreateApiKeyResult,
 } from '@/lib/graphql/types';
+import { useWorkspaceId } from '@/lib/context/WorkspaceContext';
 import { formatDate } from '@/lib/utils';
 
-// TODO: Get workspaceId from session/context. Placeholder for now.
-const WORKSPACE_ID = 'WORKSPACE_ID_FROM_SESSION';
-
 /* --------------------------------------------------------------------------- */
-/* Raw key display — shown ONCE after creation                                   */
+/* Raw key display — shown ONCE after creation or rotation                       */
 /* --------------------------------------------------------------------------- */
 function RawKeyDisplay({ rawKey }: { rawKey: string }) {
   const [copied, setCopied] = useState(false);
@@ -109,7 +107,7 @@ function RawKeyDisplay({ rawKey }: { rawKey: string }) {
           onClick={handleCopy}
           aria-label="Copier la clé API"
         >
-          {copied ? '✓ Copié' : 'Copier'}
+          {copied ? 'Copie !' : 'Copier'}
         </Button>
       </div>
     </div>
@@ -123,9 +121,10 @@ interface CreateKeyModalProps {
   open: boolean;
   onClose: () => void;
   onCreate: (result: CreateApiKeyResult) => void;
+  workspaceId: string;
 }
 
-function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps) {
+function CreateKeyModal({ open, onClose, onCreate, workspaceId }: CreateKeyModalProps) {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -142,7 +141,7 @@ function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps) {
     try {
       const data = await gqlClient.mutate<CreateApiKeyMutationResponse>(
         CREATE_API_KEY_MUTATION,
-        { workspaceId: WORKSPACE_ID, name: name.trim() },
+        { workspaceId, name: name.trim() },
       );
       onCreate(data.createApiKey);
       setName('');
@@ -192,20 +191,17 @@ function CreateKeyModal({ open, onClose, onCreate }: CreateKeyModalProps) {
 }
 
 /* --------------------------------------------------------------------------- */
-/* New key result modal — shows rawKey ONCE                                       */
+/* New key result modal — shows rawKey ONCE (create OR rotate)                   */
 /* --------------------------------------------------------------------------- */
 interface NewKeyResultModalProps {
   result: CreateApiKeyResult | null;
+  title?: string;
   onClose: () => void;
 }
 
-function NewKeyResultModal({ result, onClose }: NewKeyResultModalProps) {
+function NewKeyResultModal({ result, title = 'Clé API créée', onClose }: NewKeyResultModalProps) {
   return (
-    <Dialog
-      open={result !== null}
-      onClose={onClose}
-      title="Clé API créée"
-    >
+    <Dialog open={result !== null} onClose={onClose} title={title}>
       {result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <RawKeyDisplay rawKey={result.rawKey} />
@@ -246,11 +242,7 @@ function RevokeDialog({ keyToRevoke, onClose, onConfirm }: RevokeDialogProps) {
   };
 
   return (
-    <Dialog
-      open={keyToRevoke !== null}
-      onClose={onClose}
-      title="Révoquer la clé API"
-    >
+    <Dialog open={keyToRevoke !== null} onClose={onClose} title="Révoquer la clé API">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <p style={{ fontSize: '13px', color: 'var(--text-2)', lineHeight: 1.6 }}>
           Êtes-vous sûr de vouloir révoquer la clé{' '}
@@ -281,23 +273,32 @@ function RevokeDialog({ keyToRevoke, onClose, onConfirm }: RevokeDialogProps) {
 /* Main page                                                                     */
 /* --------------------------------------------------------------------------- */
 export default function ApiKeysPage() {
+  // workspaceId resolved server-side by dashboard layout — no placeholder needed.
+  const workspaceId = useWorkspaceId();
+
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newKeyResult, setNewKeyResult] = useState<CreateApiKeyResult | null>(null);
+  const [newKeyModalTitle, setNewKeyModalTitle] = useState('Clé API créée');
   const [keyToRevoke, setKeyToRevoke] = useState<ApiKey | null>(null);
   const [rotatingKeyId, setRotatingKeyId] = useState<string | null>(null);
 
   const { toast } = useToast();
 
   const fetchKeys = useCallback(async () => {
+    if (!workspaceId) {
+      setFetchError('Session non résolue. Veuillez vous reconnecter.');
+      setLoadingKeys(false);
+      return;
+    }
     setLoadingKeys(true);
     setFetchError(null);
     try {
       const data = await gqlClient.query<ApiKeysQueryResponse>(API_KEYS_QUERY, {
-        workspaceId: WORKSPACE_ID,
+        workspaceId,
       });
       setKeys(data.apiKeys);
     } catch (err) {
@@ -305,12 +306,13 @@ export default function ApiKeysPage() {
     } finally {
       setLoadingKeys(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => { fetchKeys(); }, [fetchKeys]);
 
   const handleCreate = (result: CreateApiKeyResult) => {
     setCreateModalOpen(false);
+    setNewKeyModalTitle('Clé API créée');
     setNewKeyResult(result);
     setKeys((prev) => [result.apiKey, ...prev]);
     toast('Clé API créée.', 'success');
@@ -320,7 +322,7 @@ export default function ApiKeysPage() {
     if (!keyToRevoke) return;
     try {
       await gqlClient.mutate<RevokeApiKeyMutationResponse>(REVOKE_API_KEY_MUTATION, {
-        workspaceId: WORKSPACE_ID,
+        workspaceId,
         keyId: keyToRevoke.id,
       });
       setKeys((prev) =>
@@ -335,29 +337,25 @@ export default function ApiKeysPage() {
   };
 
   /**
-   * Rotate = revoke then create with same name.
-   * DEBT: Not atomic. BFF should expose rotateApiKey(workspaceId, keyId) with grace period.
+   * Rotate — single atomic BFF call (Mutation.rotateApiKey).
+   * Closes D-E03: replaces the previous revoke+create two-step approach.
+   * The rawKey from the result is displayed once in the NewKeyResultModal.
    */
   const handleRotate = async (key: ApiKey) => {
     setRotatingKeyId(key.id);
     try {
-      // Step 1: revoke
-      await gqlClient.mutate<RevokeApiKeyMutationResponse>(REVOKE_API_KEY_MUTATION, {
-        workspaceId: WORKSPACE_ID,
-        keyId: key.id,
-      });
-      // Step 2: create with same name
-      const data = await gqlClient.mutate<CreateApiKeyMutationResponse>(
-        CREATE_API_KEY_MUTATION,
-        { workspaceId: WORKSPACE_ID, name: key.name },
+      const data = await gqlClient.mutate<RotateApiKeyMutationResponse>(
+        ROTATE_API_KEY_MUTATION,
+        { workspaceId, keyId: key.id },
       );
-      // Remove old, add new
+      // Replace the old key with the newly created one
       setKeys((prev) => [
-        data.createApiKey.apiKey,
+        data.rotateApiKey.apiKey,
         ...prev.filter((k) => k.id !== key.id),
       ]);
-      setNewKeyResult(data.createApiKey);
-      toast('Clé tournée. Copiez votre nouvelle clé.', 'success');
+      setNewKeyModalTitle('Clé tournée — nouvelle clé');
+      setNewKeyResult(data.rotateApiKey);
+      toast('Rotation effectuée. Copiez votre nouvelle clé.', 'success');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erreur lors de la rotation.', 'error');
     } finally {
@@ -479,7 +477,7 @@ export default function ApiKeysPage() {
                 title="Aucune clé API"
                 description="Créez votre première clé API pour commencer à envoyer des messages via l'API Fleece."
                 action={{ label: '+ Créer une clé', onClick: () => setCreateModalOpen(true) }}
-                icon="⚷"
+                icon="key"
               />
             )}
             {!loadingKeys && !fetchError && keys.length > 0 && (
@@ -539,7 +537,6 @@ export default function ApiKeysPage() {
                                 onClick={() => handleRotate(key)}
                                 loading={rotatingKeyId === key.id}
                                 disabled={rotatingKeyId !== null}
-                                title="Rotation : révoque et recrée (non atomique — voir DEBT)"
                                 aria-label={`Tourner la clé ${key.name}`}
                               >
                                 Rotation
@@ -574,9 +571,11 @@ export default function ApiKeysPage() {
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onCreate={handleCreate}
+        workspaceId={workspaceId}
       />
       <NewKeyResultModal
         result={newKeyResult}
+        title={newKeyModalTitle}
         onClose={() => setNewKeyResult(null)}
       />
       <RevokeDialog

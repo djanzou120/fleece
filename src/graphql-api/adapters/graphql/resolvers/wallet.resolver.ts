@@ -16,6 +16,12 @@ interface WalletBalanceArgs {
   workspaceId: string;
 }
 
+interface TransactionsArgs {
+  workspaceId: string;
+  cursor?: string;
+  limit?: number;
+}
+
 interface MessagesArgs {
   workspaceId: string;
   cursor?: string;
@@ -51,6 +57,22 @@ export function buildWalletResolvers(deps: WalletResolverDeps) {
         ctx: ApiContext,
       ) => {
         return walletClient.getBalance(ctx, args.workspaceId);
+      },
+
+      /**
+       * Liste les transactions paginées du wallet d'un workspace.
+       * La pagination cursor-based est appliquée côté BFF sur la liste complète
+       * retournée par le Wallet Service (mapping + pagination dans WalletRestClient).
+       */
+      transactions: async (
+        _parent: unknown,
+        args: TransactionsArgs,
+        ctx: ApiContext,
+      ) => {
+        return walletClient.listTransactions(ctx, args.workspaceId, {
+          cursor: args.cursor,
+          limit: args.limit,
+        });
       },
 
       /**

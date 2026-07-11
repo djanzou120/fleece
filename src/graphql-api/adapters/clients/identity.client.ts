@@ -77,6 +77,38 @@ export class IdentityRestClient implements IdentityClient {
     return request<WorkspaceDTO>(this.baseUrl, "GET", `/workspaces/${workspaceId}`, ctx);
   }
 
+  /**
+   * Crée un nouveau workspace.
+   * TODO(production): auth-api doit dériver ownerEmail depuis le token de session
+   * transmis dans l'en-tête Authorization (service-to-service). Le corps REST
+   * inclut {name, country} ; auth-api résout l'owner via le token.
+   */
+  async createWorkspace(ctx: ApiContext, name: string, country: string): Promise<WorkspaceDTO> {
+    // TODO(production): POST {baseUrl}/workspaces { name, country }
+    // Note: auth-api v1 exige ownerEmail dans le corps ; en production, transmettre
+    // le token de session dans Authorization afin que auth-api résolve l'owner.
+    const result = await request<WorkspaceDTO>(
+      this.baseUrl,
+      "POST",
+      "/workspaces",
+      ctx,
+      { name, country },
+    );
+    if (result === null) {
+      // Stub offline : retourne un workspace fictif pour le développement du frontend
+      const slug = name.toLowerCase().replace(/\s+/g, "-");
+      return {
+        id: "stub-workspace-id",
+        name,
+        country,
+        slug,
+        plan: "starter",
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return result;
+  }
+
   async listApiKeys(ctx: ApiContext, workspaceId: string): Promise<ApiKeyDTO[]> {
     // TODO(production): GET {baseUrl}/workspaces/{workspaceId}/api-keys
     const result = await request<ApiKeyDTO[]>(
@@ -127,6 +159,41 @@ export class IdentityRestClient implements IdentityClient {
       `/workspaces/${workspaceId}/api-keys/${keyId}`,
       ctx,
     );
+  }
+
+  /**
+   * Rotation d'une clé API : révoque l'ancienne et crée une nouvelle.
+   * Route auth-api : POST /workspaces/{workspaceId}/api-keys/{keyId}/rotate
+   * Réponse : { rawKey: string, apiKey: ApiKeyDTO } — identique à createApiKey.
+   */
+  async rotateApiKey(
+    ctx: ApiContext,
+    workspaceId: string,
+    keyId: string,
+  ): Promise<{ rawKey: string; apiKey: ApiKeyDTO }> {
+    // TODO(production): POST {baseUrl}/workspaces/{workspaceId}/api-keys/{keyId}/rotate
+    const result = await request<{ rawKey: string; apiKey: ApiKeyDTO }>(
+      this.baseUrl,
+      "POST",
+      `/workspaces/${workspaceId}/api-keys/${keyId}/rotate`,
+      ctx,
+    );
+    if (result === null) {
+      // Stub offline : retourne une clé fictive rotée pour le développement du frontend
+      return {
+        rawKey: "fleece_stub_rotated_raw_key",
+        apiKey: {
+          id: `stub-rotated-${keyId}`,
+          workspaceId,
+          name: "rotated-key",
+          prefix: "fleece_rot",
+          active: true,
+          createdAt: new Date().toISOString(),
+          expiresAt: null,
+        },
+      };
+    }
+    return result;
   }
 }
 

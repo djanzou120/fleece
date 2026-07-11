@@ -3,23 +3,17 @@
  * DASH-04 — Webhooks configuration page.
  *
  * Features:
- * - List webhook endpoints (url, events, active badge, createdAt)
- * - Secret field: shown as "••••••••" placeholder (DEBT — not in SDL)
+ * - List webhook endpoints (url, events, active badge, createdAt, secretPreview)
  * - Add endpoint modal (url + multi-select events → createWebhookEndpoint)
  * - Delete endpoint (confirm dialog → deleteWebhookEndpoint)
  * - Delivery history: empty-state (DEBT — no deliveries Query/type in SDL)
- *
- * DEBT — webhook secret: The SDL WebhookEndpoint type has no `secret` field.
- * BFF TODO: add `secret: String` (or masked `secretPreview: String`) to
- * WebhookEndpoint so the dashboard can display the HMAC signing secret.
  *
  * DEBT — webhook deliveries: No `deliveries` field on WebhookEndpoint and no
  * standalone deliveries query in the SDL. BFF TODO: expose
  * `WebhookEndpoint.deliveries: [WebhookDelivery!]!` or a separate query.
  *
  * Acceptance criteria (DASH-04):
- * - List endpoints with url, events, active, createdAt
- * - Secret masked "••••" with debt note
+ * - List endpoints with url, events, active, createdAt, secretPreview
  * - Add endpoint via createWebhookEndpoint mutation
  * - Delete with confirmation via deleteWebhookEndpoint mutation
  * - Deliveries empty-state with debt annotation
@@ -53,8 +47,7 @@ import type {
   DeleteWebhookEndpointMutationResponse,
 } from '@/lib/graphql/types';
 import { formatDate } from '@/lib/utils';
-
-const WORKSPACE_ID = 'WORKSPACE_ID_FROM_SESSION';
+import { useWorkspaceId } from '@/lib/context/WorkspaceContext';
 
 /* Available webhook event types (from API-03 / TDD §4.6) */
 const AVAILABLE_EVENTS = [
@@ -74,9 +67,10 @@ interface AddEndpointModalProps {
   open: boolean;
   onClose: () => void;
   onCreated: (endpoint: WebhookEndpoint) => void;
+  workspaceId: string;
 }
 
-function AddEndpointModal({ open, onClose, onCreated }: AddEndpointModalProps) {
+function AddEndpointModal({ open, onClose, onCreated, workspaceId }: AddEndpointModalProps) {
   const [url, setUrl] = useState('');
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [urlError, setUrlError] = useState('');
@@ -117,7 +111,7 @@ function AddEndpointModal({ open, onClose, onCreated }: AddEndpointModalProps) {
     try {
       const data = await gqlClient.mutate<CreateWebhookEndpointMutationResponse>(
         CREATE_WEBHOOK_ENDPOINT_MUTATION,
-        { workspaceId: WORKSPACE_ID, url: url.trim(), events: selectedEvents },
+        { workspaceId, url: url.trim(), events: selectedEvents },
       );
       onCreated(data.createWebhookEndpoint);
       setUrl('');
@@ -331,7 +325,6 @@ function EndpointRow({
           {formatDate(endpoint.createdAt)}
         </TableCell>
         <TableCell>
-          {/* Secret masked — DEBT: not in SDL */}
           <code
             style={{
               fontFamily: 'var(--font-geist-mono, monospace)',
@@ -339,9 +332,9 @@ function EndpointRow({
               color: 'var(--text-3)',
               letterSpacing: '0.1em',
             }}
-            title="Secret non disponible — voir DEBT BFF"
+            aria-label="Aperçu du secret HMAC"
           >
-            ••••••••
+            {endpoint.secretPreview ?? '••••••••'}
           </code>
         </TableCell>
         <TableCell style={{ textAlign: 'right' }}>
@@ -396,20 +389,12 @@ function EndpointRow({
                     fontSize: '12px',
                   }}
                 >
-                  <code style={{ fontFamily: 'monospace', color: 'var(--text-3)', flex: 1 }}>
-                    ••••••••••••••••••••••••••••••••
-                  </code>
-                  <span
-                    style={{
-                      fontSize: '10px',
-                      color: 'var(--warn)',
-                      backgroundColor: 'var(--warn-soft)',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                    }}
+                  <code
+                    style={{ fontFamily: 'monospace', color: 'var(--text-3)', flex: 1 }}
+                    aria-label="Aperçu masqué du secret HMAC"
                   >
-                    DEBT: champ absent du SDL
-                  </span>
+                    {endpoint.secretPreview ?? '••••••••'}
+                  </code>
                 </div>
               </div>
             </div>
@@ -424,6 +409,7 @@ function EndpointRow({
 /* Main page                                                                     */
 /* --------------------------------------------------------------------------- */
 export default function WebhooksPage() {
+  const workspaceId = useWorkspaceId();
   const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -432,12 +418,13 @@ export default function WebhooksPage() {
   const { toast } = useToast();
 
   const fetchEndpoints = useCallback(async () => {
+    if (!workspaceId) return;
     setLoading(true);
     setFetchError(null);
     try {
       const data = await gqlClient.query<WebhookEndpointsQueryResponse>(
         WEBHOOK_ENDPOINTS_QUERY,
-        { workspaceId: WORKSPACE_ID },
+        { workspaceId },
       );
       setEndpoints(data.webhookEndpoints);
     } catch (err) {
@@ -445,7 +432,7 @@ export default function WebhooksPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => { fetchEndpoints(); }, [fetchEndpoints]);
 
@@ -459,7 +446,7 @@ export default function WebhooksPage() {
     try {
       await gqlClient.mutate<DeleteWebhookEndpointMutationResponse>(
         DELETE_WEBHOOK_ENDPOINT_MUTATION,
-        { workspaceId: WORKSPACE_ID, id: endpointToDelete.id },
+        { workspaceId, id: endpointToDelete.id },
       );
       setEndpoints((prev) => prev.filter((ep) => ep.id !== endpointToDelete.id));
       toast('Endpoint supprimé.', 'success');
@@ -638,6 +625,7 @@ export default function WebhooksPage() {
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
         onCreated={handleCreated}
+        workspaceId={workspaceId}
       />
       <DeleteDialog
         endpoint={endpointToDelete}

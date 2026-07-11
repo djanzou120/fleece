@@ -5,7 +5,7 @@
 > **À lire en premier** au début d'une session pour retrouver le contexte. **À mettre à jour** à la fin
 > de tout changement structurant (nouvelle décision, nouveau module, changement de convention).
 >
-> Dernière mise à jour : **2026-06-13**.
+> Dernière mise à jour : **2026-07-05**.
 
 ---
 
@@ -64,6 +64,7 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | D19 | Domaine partagé entre services | **Non** | Chaque service possède son domaine ; `src/go`, `src/ts/*` = transverse uniquement. |
 | D20 | Organisation du travail | **Équipe d'agents pilotée par un PM** | Agents projet dans `.ia/.claude/agents/` ; le PM (`fleece-pm`) dispatche, suit et fait l'acceptance. Suivi écrit dans `.ia/PROJECT_TRACKER.md` (voir §9). |
 | D21 | Mémoire de session | **`.ia/MEMORY.md` + hook SessionStart** | Hook dans `.ia/.claude/settings.json` qui injecte ce fichier au démarrage de chaque session. |
+| D24 | Modélisation du scoring par canal (Contact Intelligence) | **Table dédiée `contact_intel.contact_channel_scores`** (PK `(phone, channel)`) plutôt qu'une colonne `JSONB` sur `contacts` | Indexabilité native `(channel, score DESC)` requise par `highest_delivery` (routing T-016), impossible sur JSONB sans index fonctionnel complexe ; granularité de verrouillage sur upsert incrémental (lock ligne `(phone,channel)` vs toute la ligne `contacts`) ; lisibilité SQL + upsert `ON CONFLICT` simple côté service Go. Migration additive `0014_contact_intel_scoring.sql` (T-011). |
 
 ---
 
@@ -135,6 +136,33 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 ---
 
 ## 7. Journal des sessions
+
+### Session 2026-07-11
+1. **Remboursement de dette technique transverse** (branche `chore/tech-debt-paydown`, commit dédié). Orchestration PM :
+   go-engineer (wallet) ‖ devops → ts-engineer (BFF+auth-api) → frontend-engineer (finalisé après un stall de l'agent) → qa + architect-reviewer.
+2. **Soldé** : D-E01/T-007.4 (wallet `ListTransactions` + endpoint REST `GET /wallets/{workspaceId}/transactions` → `Query.transactions`) ;
+   D-E03/T-008.1a (`Mutation.rotateApiKey` atomique) ; T-008.1f (`Mutation.createWorkspace`) ; D-E02/T-008.1c (`WebhookEndpoint.secretPreview`
+   masqué) ; D-E06/T-008.4 (session dashboard : `lib/session.ts` + `WorkspaceContext` + résolution serveur ; fin du placeholder
+   `WORKSPACE_ID_FROM_SESSION`) ; harmonisation `@anthill/`→`@fleece/` (auth-api, graphql-api, 5 libs `src/ts/*`) ; T-009.2 (CI
+   `make build pkg=rest-api`) ; T-009.4 (cible Makefile `k8s-configmaps` idempotente). Verdict **PASS 6/6 + CONFORME**, go.mod inchangé,
+   `tsc --noEmit` exit 0 (3 projets), 0 import backend au frontend, frameworks GraphQL confinés C4.
+3. **Résiduels NON soldables offline** (réseau) : clients REST BFF encore stubs (`TODO(production)`, D-E05/T-007.1/.2) ; Apollo/Yoga non
+   installés ; `createWorkspace` auth-api attend `ownerEmail` (à dériver du token de session) ; `WebhookEndpoint.secret` à exposer côté
+   service webhook Go ; top-up wallet réel = V2 (paiement, D8) ; `npm install`/`next build`/`docker`/`kubectl`/`atlas apply` à valider en CI.
+4. **Backlog V1** revu : découpage cohérent ; scission d'atomicité → **T-038** (seed pricing/scores Telegram, db-engineer, débloque T-015) ;
+   ajout d'un **ordre d'exécution V1 en 5 vagues** dans le tracker. Observations : Contact Intelligence sans écran dashboard (backend-only,
+   assumé) ; gateway REST public `src/rest-api` (D22) toujours non implémenté = dette MVP hors scope V1 (à planifier séparément).
+
+### Session 2026-07-05
+1. **Démarrage V1 🟡.** MVP P0 (T-001..T-010) clôturé Done/PASS. Première tâche V1 traitée : **T-011** (schéma
+   Contact Intelligence), sans dépendance, prérequis de T-012.
+2. Migration additive `migrations/0014_contact_intel_scoring.sql` (db-engineer) : enrichit `contact_intel.contacts`
+   (country/last_channel/last_success_at + compteurs success_count/failure_count), crée la table
+   `contact_intel.contact_channel_scores` (**D24** — table dédiée vs JSONB) et 5 index de scoring/lecture.
+   100% additive (`IF NOT EXISTS`), `0008` intact, schéma `contact_intel` isolé. `atlas migrate hash`+`validate` OK,
+   `atlas.sum` régénéré ; `atlas migrate lint` réservé Atlas Pro (v0.38+) → à faire en CI (`atlas login`).
+3. Acceptance QA **PASS** 7/7 (offline-safe, revue statique + grep additivité/isolation + git diff 0008 + atlas hash/validate).
+   Pas d'architect-reviewer (SQL pur, aucune frontière Clean Architecture). T-011 Done/PASS ; prérequis de T-012 levé.
 
 ### Session 2026-06-13 (suite)
 4. Séparation API publique / API privée : ajouté `src/rest-api` (gateway REST TS public, D22) et `src/ts/api-common`

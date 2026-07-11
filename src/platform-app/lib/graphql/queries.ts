@@ -2,6 +2,9 @@
  * GraphQL query/mutation documents.
  * Kept as plain strings — no gql tag dependency (offline).
  * DEBT: Replace with typed documents from @graphql-codegen once online.
+ *
+ * All operations are aligned to src/graphql-api/adapters/graphql/schema.graphql.
+ * Zero phantom operations — every field/argument listed here exists in the SDL.
  */
 
 /* --------------------------------------------------------------------------- */
@@ -45,6 +48,31 @@ export const WALLET_BALANCE_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * DASH-03 — Transaction history (paginated, cursor-based).
+ * SDL: Query.transactions(workspaceId: ID!, cursor: String, limit: Int): TransactionPage!
+ * Closes D-E01 / T-008.1b.
+ */
+export const TRANSACTIONS_QUERY = /* GraphQL */ `
+  query GetTransactions($workspaceId: ID!, $cursor: String, $limit: Int) {
+    transactions(workspaceId: $workspaceId, cursor: $cursor, limit: $limit) {
+      items {
+        id
+        workspaceId
+        type
+        amount
+        currency
+        description
+        createdAt
+      }
+      pageInfo {
+        nextCursor
+        hasNextPage
+      }
+    }
+  }
+`;
+
 export const MESSAGES_QUERY = /* GraphQL */ `
   query GetMessages($workspaceId: ID!, $cursor: String, $limit: Int) {
     messages(workspaceId: $workspaceId, cursor: $cursor, limit: $limit) {
@@ -66,6 +94,11 @@ export const MESSAGES_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * DASH-04 — Webhook endpoints list.
+ * Includes secretPreview field added to WebhookEndpoint in the SDL.
+ * Closes D-E02 / T-008.1c.
+ */
 export const WEBHOOK_ENDPOINTS_QUERY = /* GraphQL */ `
   query GetWebhookEndpoints($workspaceId: ID!) {
     webhookEndpoints(workspaceId: $workspaceId) {
@@ -75,6 +108,7 @@ export const WEBHOOK_ENDPOINTS_QUERY = /* GraphQL */ `
       events
       active
       createdAt
+      secretPreview
     }
   }
 `;
@@ -82,6 +116,24 @@ export const WEBHOOK_ENDPOINTS_QUERY = /* GraphQL */ `
 /* --------------------------------------------------------------------------- */
 /* Mutations                                                                      */
 /* --------------------------------------------------------------------------- */
+
+/**
+ * DASH-01 — Create a new workspace during onboarding.
+ * SDL: Mutation.createWorkspace(name: String!, country: String!): Workspace!
+ * Closes T-008.1f.
+ */
+export const CREATE_WORKSPACE_MUTATION = /* GraphQL */ `
+  mutation CreateWorkspace($name: String!, $country: String!) {
+    createWorkspace(name: $name, country: $country) {
+      id
+      name
+      country
+      slug
+      plan
+      createdAt
+    }
+  }
+`;
 
 export const CREATE_API_KEY_MUTATION = /* GraphQL */ `
   mutation CreateApiKey($workspaceId: ID!, $name: String!) {
@@ -106,6 +158,28 @@ export const REVOKE_API_KEY_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * DASH-02 — Atomic API key rotation (replaces revoke+create two-step).
+ * SDL: Mutation.rotateApiKey(workspaceId: ID!, keyId: ID!): CreateApiKeyResult!
+ * Closes D-E03 / T-008.1a.
+ */
+export const ROTATE_API_KEY_MUTATION = /* GraphQL */ `
+  mutation RotateApiKey($workspaceId: ID!, $keyId: ID!) {
+    rotateApiKey(workspaceId: $workspaceId, keyId: $keyId) {
+      rawKey
+      apiKey {
+        id
+        workspaceId
+        name
+        prefix
+        active
+        createdAt
+        expiresAt
+      }
+    }
+  }
+`;
+
 export const CREATE_WEBHOOK_ENDPOINT_MUTATION = /* GraphQL */ `
   mutation CreateWebhookEndpoint($workspaceId: ID!, $url: String!, $events: [String!]!) {
     createWebhookEndpoint(workspaceId: $workspaceId, url: $url, events: $events) {
@@ -115,6 +189,7 @@ export const CREATE_WEBHOOK_ENDPOINT_MUTATION = /* GraphQL */ `
       events
       active
       createdAt
+      secretPreview
     }
   }
 `;

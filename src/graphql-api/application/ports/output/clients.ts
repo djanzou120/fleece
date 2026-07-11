@@ -37,9 +37,13 @@ export interface WalletBalanceDTO {
 export interface TransactionDTO {
   id: string;
   workspaceId: string;
-  type: "credit" | "debit";
+  /** Type de transaction : "credit" | "debit" | "refund" — mappé depuis `kind` du backend Go. */
+  type: "credit" | "debit" | "refund";
+  /** Montant en centimes. */
   amount: number;
+  /** Devise ISO 4217 — récupérée via getBalance (le backend Go ne la retourne pas par transaction). */
   currency: string;
+  /** Description lisible dérivée du kind + message_id. */
   description: string;
   createdAt: string; // ISO 8601
 }
@@ -62,6 +66,11 @@ export interface WebhookEndpointDTO {
   events: string[];
   active: boolean;
   createdAt: string; // ISO 8601
+  /**
+   * Secret de signature brut (HMAC) retourné par le Webhook Service.
+   * NE JAMAIS exposer en clair via GraphQL — le résolveur `secretPreview` masque cette valeur.
+   */
+  secret?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +84,13 @@ export interface WebhookEndpointDTO {
 export interface IdentityClient {
   /** Récupère un workspace par son identifiant ; null si absent. */
   getWorkspace(ctx: ApiContext, workspaceId: string): Promise<WorkspaceDTO | null>;
+
+  /**
+   * Crée un nouveau workspace.
+   * TODO(production) : auth-api doit dériver ownerEmail depuis le token de session
+   * transmis dans l'en-tête Authorization (service-to-service).
+   */
+  createWorkspace(ctx: ApiContext, name: string, country: string): Promise<WorkspaceDTO>;
 
   /** Liste toutes les clés API d'un workspace. */
   listApiKeys(ctx: ApiContext, workspaceId: string): Promise<ApiKeyDTO[]>;
@@ -91,6 +107,17 @@ export interface IdentityClient {
 
   /** Révoque une clé API existante. */
   revokeApiKey(ctx: ApiContext, workspaceId: string, keyId: string): Promise<void>;
+
+  /**
+   * Effectue la rotation d'une clé API : révoque l'ancienne et crée une nouvelle.
+   * Retourne la nouvelle clé brute (à afficher une seule fois) et les métadonnées.
+   * Route auth-api : POST /workspaces/{workspaceId}/api-keys/{keyId}/rotate
+   */
+  rotateApiKey(
+    ctx: ApiContext,
+    workspaceId: string,
+    keyId: string,
+  ): Promise<{ rawKey: string; apiKey: ApiKeyDTO }>;
 }
 
 /**
@@ -101,7 +128,11 @@ export interface WalletClient {
   /** Récupère le solde du wallet d'un workspace. */
   getBalance(ctx: ApiContext, workspaceId: string): Promise<WalletBalanceDTO>;
 
-  /** Liste les transactions paginées (cursor-based). */
+  /**
+   * Liste les transactions paginées (cursor-based).
+   * La pagination est appliquée côté BFF sur le tableau complet retourné par le backend.
+   * Le backend Go répond avec un tableau brut ; le BFF mappe et pagine.
+   */
   listTransactions(
     ctx: ApiContext,
     workspaceId: string,

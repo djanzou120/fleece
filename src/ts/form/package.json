@@ -1,5 +1,5 @@
 {
-  "name": "@anthill/form",
+  "name": "@fleece/form",
   "version": "0.0.0",
   "dependencies": {
     "joi": "^17.6.0"

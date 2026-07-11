@@ -35,3 +35,26 @@ publish:: ## publish the package image to docker
 	$(info publishing ${pkg}:${version} image)
 	docker push anthill/backend:${pkg}-v${version}
 endif
+
+# ---------------------------------------------------------------------------
+# Kubernetes — infrastructure helpers (no pkg required)
+# ---------------------------------------------------------------------------
+
+# (Re)create ConfigMaps atlas-migrations and atlas-hcl in the fleece namespace.
+# Idempotent: uses --dry-run=client | kubectl apply so a second run updates
+# instead of erroring. Fish-safe: plain pipeline, no loops or heredocs.
+# Requires kubectl configured against the target cluster.
+#
+# Usage: make k8s-configmaps
+k8s-configmaps: ## (Re)create ConfigMaps atlas-migrations + atlas-hcl in namespace fleece (idempotent)
+	$(info creating/updating ConfigMap atlas-migrations from migrations/)
+	kubectl create configmap atlas-migrations \
+	  --from-file=migrations/ \
+	  -n fleece \
+	  --dry-run=client -o yaml | kubectl apply -f -
+	$(info creating/updating ConfigMap atlas-hcl from atlas.hcl)
+	kubectl create configmap atlas-hcl \
+	  --from-file=atlas.hcl=atlas.hcl \
+	  -n fleece \
+	  --dry-run=client -o yaml | kubectl apply -f -
+	$(info ConfigMaps ready.)

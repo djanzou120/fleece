@@ -1,16 +1,13 @@
 # Atlas migration init job.
 #
-# PREREQUISITE — create the ConfigMap from the migrations/ directory before applying this job:
+# PREREQUISITE — create ConfigMaps from the repo files before applying this job.
+# Use the Makefile target (idempotent, re-run after adding new migration files):
 #
-#   kubectl create configmap atlas-migrations \
-#     --from-file=/path/to/fleece/migrations/ \
-#     -n fleece \
-#     --dry-run=client -o yaml | kubectl apply -f -
+#   make k8s-configmaps
 #
-#   kubectl create configmap atlas-hcl \
-#     --from-file=atlas.hcl=/path/to/fleece/atlas.hcl \
-#     -n fleece \
-#     --dry-run=client -o yaml | kubectl apply -f -
+# This creates both atlas-migrations (from migrations/) and atlas-hcl (from
+# atlas.hcl) in the fleece namespace using --dry-run=client | kubectl apply,
+# so it is safe to run multiple times.
 #
 # The job reads DATABASE_URL from the fleece-secret Secret (postgres:// URL format).
 # It mounts migrations/ under /migrations and atlas.hcl under /atlas/atlas.hcl.
@@ -19,10 +16,9 @@
 #   1. namespace.yaml
 #   2. config/secret.yaml  (from secret.example.yaml)
 #   3. infra/postgres.yaml  (wait for postgres readiness)
-#   4. kubectl create configmap atlas-migrations ... (see above)
-#   5. kubectl create configmap atlas-hcl ...
-#   6. jobs/atlas-migrate.yaml  (wait for job completion before services)
-#   7. services/*.yaml
+#   4. make k8s-configmaps  (creates atlas-migrations + atlas-hcl ConfigMaps)
+#   5. jobs/atlas-migrate.yaml  (wait for job completion before services)
+#   6. services/*.yaml
 #
 apiVersion: batch/v1
 kind: Job
