@@ -65,6 +65,7 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | D20 | Organisation du travail | **Équipe d'agents pilotée par un PM** | Agents projet dans `.ia/.claude/agents/` ; le PM (`fleece-pm`) dispatche, suit et fait l'acceptance. Suivi écrit dans `.ia/PROJECT_TRACKER.md` (voir §9). |
 | D21 | Mémoire de session | **`.ia/MEMORY.md` + hook SessionStart** | Hook dans `.ia/.claude/settings.json` qui injecte ce fichier au démarrage de chaque session. |
 | D24 | Modélisation du scoring par canal (Contact Intelligence) | **Table dédiée `contact_intel.contact_channel_scores`** (PK `(phone, channel)`) plutôt qu'une colonne `JSONB` sur `contacts` | Indexabilité native `(channel, score DESC)` requise par `highest_delivery` (routing T-016), impossible sur JSONB sans index fonctionnel complexe ; granularité de verrouillage sur upsert incrémental (lock ligne `(phone,channel)` vs toute la ligne `contacts`) ; lisibilité SQL + upsert `ON CONFLICT` simple côté service Go. Migration additive `0014_contact_intel_scoring.sql` (T-011). |
+| D25 | Phase de livraison du gateway REST public `src/rest-api` (D22) | **Livré en V2 🔵** comme track indépendant (tâches T-043 impl / T-044 rate limiting Redis / T-045 DevOps) | Dette MVP « API-first » non implémentée (seul le BFF GraphQL privé a été livré au MVP). Le rest-api est la surface publique des développeurs externes ; le planifier dans la fenêtre V2 est cohérent (les nouveaux canaux Messenger/RCS doivent être atteignables via l'API publique). Non bloquant pour SSO/canaux/IA → track parallèle. Alternative écartée : backlog « dette » séparé (aurait laissé le produit API-first incomplet sans jalon). |
 
 ---
 
@@ -136,6 +137,19 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 ---
 
 ## 7. Journal des sessions
+
+### Session 2026-07-11 (suite — planification V2)
+1. **Affinage du backlog V2 🔵** au niveau de détail V1 (planification pure, aucun code, aucun commit).
+   Audit PRD §15 / TDD §9 : périmètre V2 = **SSO, Messenger, RCS, optimisation IA du routage** (Email hors roadmap ; A/B testing
+   rattaché au routage cf. « optimisation IA »).
+2. **Scissions d'atomicité** (1 tâche = 1 agent = 1 livrable) : **T-039** (schéma `identity.sso_connections`, extrait de T-026) ·
+   **T-040** (seed pricing/scores Messenger/RCS, extrait de T-031) · **T-041** (schémas A/B : `routing.experiments` + métriques variantes
+   `analytics`, 2 fichiers, extrait de T-033) · **T-042** (analytics métriques par variante + feedback, côté analytics de T-033).
+   T-026/T-031/T-033/T-035/T-037 ajustés (dépendances + critères).
+3. **Décision D25** : le gateway REST public `src/rest-api` **sort en V2** → track T-043 (impl) + T-044 (rate limiting Redis, PRD §Rate
+   Limiting) + T-045 (DevOps K8s + Redis). QA V2 (T-037) étendue à l'acceptance de l'API publique (API-01..04).
+4. **Ordre d'exécution V2 en 8 vagues (A→H)** ajouté au tracker (prérequis : V1 Done/PASS pour les tâches IA ; SSO/canaux/rest-api ne
+   dépendent que du MVP). Observations tracées (canaux = dimension absorbée par campaign/analytics/webhook ; Email hors scope).
 
 ### Session 2026-07-11
 1. **Remboursement de dette technique transverse** (branche `chore/tech-debt-paydown`, commit dédié). Orchestration PM :
