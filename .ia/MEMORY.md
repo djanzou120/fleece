@@ -140,6 +140,19 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 
 ## 7. Journal des sessions
 
+### Session 2026-07-12 (suite — T-017 schéma Campaign)
+1. **T-017 Done/PASS** (Vague 1 V1) : `migrations/0016_campaign_execution.sql` (db-engineer → qa → PM ; pas d'architect-reviewer, SQL pur).
+   Enrichit les 3 tables `campaign` : `campaigns` (message_body/channel_strategy/estimated_cost/currency/rate_limit),
+   `campaign_recipients` (status + `message_id` + UNIQUE dédup `(campaign_id, recipient)`), `campaign_runs` (total/sent/delivered/failed
+   counters) + 3 index (dont `campaigns(status, scheduled_at)` pour le scheduler). QA PASS 7/7.
+2. **Choix de modélisation** (cohérents avec décisions existantes, pas de nouvelle décision structurante) : `estimated_cost bigint` en
+   centimes (aligné wallet/D8) ; `rate_limit` 0=illimité ; **`message_id` = colonne libre non-FK** pour corréler le DLR sans franchir la
+   frontière de schéma (D11) ; déduplication **enforced en base** (index UNIQUE nommé ; pattern `ON CONFLICT DO NOTHING` côté service).
+3. **Vigilances T-018 (service Campaign Go)** : machine à états (draft→scheduled[require message_body≠''+scheduled_at]→running→completed/failed) ;
+   estimation coût via **client REST routing** (`provider_pricing`), jamais en SQL cross-schéma (D11) ; scheduler interroge
+   `status='scheduled' AND scheduled_at<=now()` puis `UPDATE ... WHERE status='scheduled'` atomique (anti-double-run) ; rate_limit =
+   token bucket par run ; consumer DLR corrèle par `message_id` (gérer le cas NULL avant injection) ; reprise via `status='pending'`.
+
 ### Session 2026-07-12 (suite — T-013 schéma provider Telegram)
 1. **T-013 Done/PASS** (Vague 1 V1) : `migrations/0015_provider_telegram.sql` (db-engineer → qa → PM ; pas d'architect-reviewer,
    SQL pur). Additive : seed idempotent du provider `telegram-bot` (`channel='telegram'`, `ON CONFLICT DO NOTHING`).
