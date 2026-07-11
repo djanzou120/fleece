@@ -4,3 +4,8 @@ dist/
 data/
 .parcel-cache/
 .idea
+.DS_Store
+.next/
+*.tsbuildinfo
+.env.local
+.env.*.local
