@@ -66,7 +66,8 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | D21 | Mémoire de session | **`.ia/MEMORY.md` + hook SessionStart** | Hook dans `.ia/.claude/settings.json` qui injecte ce fichier au démarrage de chaque session. |
 | D24 | Modélisation du scoring par canal (Contact Intelligence) | **Table dédiée `contact_intel.contact_channel_scores`** (PK `(phone, channel)`) plutôt qu'une colonne `JSONB` sur `contacts` | Indexabilité native `(channel, score DESC)` requise par `highest_delivery` (routing T-016), impossible sur JSONB sans index fonctionnel complexe ; granularité de verrouillage sur upsert incrémental (lock ligne `(phone,channel)` vs toute la ligne `contacts`) ; lisibilité SQL + upsert `ON CONFLICT` simple côté service Go. Migration additive `0014_contact_intel_scoring.sql` (T-011). |
 | D25 | Phase de livraison du gateway REST public `src/rest-api` (D22) | **Livré en V2 🔵** comme track indépendant (tâches T-043 impl / T-044 rate limiting Redis / T-045 DevOps) | Dette MVP « API-first » non implémentée (seul le BFF GraphQL privé a été livré au MVP). Le rest-api est la surface publique des développeurs externes ; le planifier dans la fenêtre V2 est cohérent (les nouveaux canaux Messenger/RCS doivent être atteignables via l'API publique). Non bloquant pour SSO/canaux/IA → track parallèle. Alternative écartée : backlog « dette » séparé (aurait laissé le produit API-first incomplet sans jalon). |
-| D26 | Formule de scoring de joignabilité (Contact Intelligence, T-012) | **Lissage de Laplace α=1** : `score = floor((success+1)/(success+failure+2)*100)`, borné [0,100] | Évite les extrêmes 0/100 sur petit échantillon (prior neutre 50 sans données) ; déterministe, monotone (succès↑→score↑, échec↑→score↓), incrémental ; entièrement en domaine pur (aucun I/O). Consommé par routing `highest_delivery` (T-016) via REST interne (`GET /contacts/{phone}/score`), jamais en cross-schéma (D11). Limite connue : `success_count` par canal non persisté dans `contact_channel_scores` → reconstruit par inversion (précision ±1 pt) ; colonne dédiée = amélioration future (migration 0015) si précision absolue requise. |
+| D26 | Formule de scoring de joignabilité (Contact Intelligence, T-012) | **Lissage de Laplace α=1** : `score = floor((success+1)/(success+failure+2)*100)`, borné [0,100] | Évite les extrêmes 0/100 sur petit échantillon (prior neutre 50 sans données) ; déterministe, monotone (succès↑→score↑, échec↑→score↓), incrémental ; entièrement en domaine pur (aucun I/O). Consommé par routing `highest_delivery` (T-016) via REST interne (`GET /contacts/{phone}/score`), jamais en cross-schéma (D11). Limite connue : `success_count` par canal non persisté dans `contact_channel_scores` → reconstruit par inversion (précision ±1 pt) ; colonne dédiée = amélioration future (migration additive dédiée) si précision absolue requise. |
+| D27 | Stockage des credentials & capabilities du canal Telegram (T-013) | **Credentials : réutilise `provider.provider_credentials.secret_enc bytea`** (bot token chiffré AES-GCM, 1 secret global par provider) ; **capabilities : constantes Go dans l'adapter C3** (pas de colonne base) | Le bot token Telegram est global au provider (non multi-tenant à ce stade), symétrique de `whatsapp-meta`/`sms-twilio` → réutiliser le pattern base chiffrée existant (option retenue vs env/Secret pur ou table par workspace). Aucun secret n'est écrit en clair dans une migration (ligne credentials insérée hors migration, ex. job d'init). Les capabilities (rich media, taille max) ne font l'objet d'aucune requête SQL → les garder en constantes de l'adapter évite un couplage schéma/logique (colonne JSONB = migration additive triviale si besoin dynamique en V2). Provider seedé `id='telegram-bot'` (convention `{channel}-{vendor}` du registry `src/provider/main.go`). Migration `0015_provider_telegram.sql`. |
 
 ---
 
@@ -138,6 +139,16 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 ---
 
 ## 7. Journal des sessions
+
+### Session 2026-07-12 (suite — T-013 schéma provider Telegram)
+1. **T-013 Done/PASS** (Vague 1 V1) : `migrations/0015_provider_telegram.sql` (db-engineer → qa → PM ; pas d'architect-reviewer,
+   SQL pur). Additive : seed idempotent du provider `telegram-bot` (`channel='telegram'`, `ON CONFLICT DO NOTHING`).
+2. **Décisions (D27)** : credentials Telegram → réutilise `provider_credentials.secret_enc` (AES-GCM, hors migration, 0 secret en clair) ;
+   capabilities → constantes Go dans l'adapter C3. QA PASS 8/8 (additivité, isolation `provider`, 0005/0012 intacts, atlas hash/validate OK).
+3. **Vigilances T-014 (adapter Telegram)** : câbler `"telegram-bot"` dans le registry `src/provider/main.go` ; lire le token via
+   `provider_credentials WHERE provider_id='telegram-bot'` (déchiffrement AES-GCM, même chemin que les adapters existants) ; définir les
+   capabilities en constantes Go dans `telegram.go` (C3) ; `channel='telegram'` déjà accepté (`text` libre, pas de CHECK).
+   **Vigilance T-024 (DevOps)** : Secret K8s clé AES-GCM + insertion de la ligne credentials chiffrée hors migration (job d'init).
 
 ### Session 2026-07-12 (T-012 — Contact Intelligence)
 1. **T-012 livré Done/PASS** (Vague 1 V1) : service `src/contact-intelligence` complet en Clean Architecture 4 couches, stdlib-only,

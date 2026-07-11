@@ -1,4 +1,4 @@
-h1:KY8DUG2fBHV1WMt+nn8ukpUrplioktbIXPDXdCLEAhI=
+h1:lWeNISbwraP48JQ4Jj8xEb0qaf4NLKGnZKooYSsC2qE=
 0001_identity.sql h1:dKMFjhV08UoIEO4N/9Lzq0ezYTzWHq155rQ8QmdVN9E=
 0002_wallet.sql h1:JD66QfNoF0Q2nxDK2e/zNv0W8Rj95ot71rsnOhUYwhA=
 0003_messaging.sql h1:GohJM38GGnpSG52azR3Rksz10Wha/oBqUozxk4Nb7rQ=
@@ -13,3 +13,4 @@ h1:KY8DUG2fBHV1WMt+nn8ukpUrplioktbIXPDXdCLEAhI=
 0012_provider_dlr_status.sql h1:DdQqu/gFBNmxIgOXz6jT/vybgSxtJhn5BygcST23vYI=
 0013_routing_strategies.sql h1:a8Uco2YYs/vML/7gpfVwJvfGSevgjFO5dye0HtjnMaQ=
 0014_contact_intel_scoring.sql h1:bUP8Ex6yUbryWGEaVpH/966x1dl/vyq8EQQPJuMn0Xk=
+0015_provider_telegram.sql h1:p99Dg+mtC9KkPYhH5jJbaxcWZ6SyNn1bg+GNaIoEAU8=
