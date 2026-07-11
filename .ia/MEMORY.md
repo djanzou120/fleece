@@ -66,6 +66,7 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | D21 | Mémoire de session | **`.ia/MEMORY.md` + hook SessionStart** | Hook dans `.ia/.claude/settings.json` qui injecte ce fichier au démarrage de chaque session. |
 | D24 | Modélisation du scoring par canal (Contact Intelligence) | **Table dédiée `contact_intel.contact_channel_scores`** (PK `(phone, channel)`) plutôt qu'une colonne `JSONB` sur `contacts` | Indexabilité native `(channel, score DESC)` requise par `highest_delivery` (routing T-016), impossible sur JSONB sans index fonctionnel complexe ; granularité de verrouillage sur upsert incrémental (lock ligne `(phone,channel)` vs toute la ligne `contacts`) ; lisibilité SQL + upsert `ON CONFLICT` simple côté service Go. Migration additive `0014_contact_intel_scoring.sql` (T-011). |
 | D25 | Phase de livraison du gateway REST public `src/rest-api` (D22) | **Livré en V2 🔵** comme track indépendant (tâches T-043 impl / T-044 rate limiting Redis / T-045 DevOps) | Dette MVP « API-first » non implémentée (seul le BFF GraphQL privé a été livré au MVP). Le rest-api est la surface publique des développeurs externes ; le planifier dans la fenêtre V2 est cohérent (les nouveaux canaux Messenger/RCS doivent être atteignables via l'API publique). Non bloquant pour SSO/canaux/IA → track parallèle. Alternative écartée : backlog « dette » séparé (aurait laissé le produit API-first incomplet sans jalon). |
+| D26 | Formule de scoring de joignabilité (Contact Intelligence, T-012) | **Lissage de Laplace α=1** : `score = floor((success+1)/(success+failure+2)*100)`, borné [0,100] | Évite les extrêmes 0/100 sur petit échantillon (prior neutre 50 sans données) ; déterministe, monotone (succès↑→score↑, échec↑→score↓), incrémental ; entièrement en domaine pur (aucun I/O). Consommé par routing `highest_delivery` (T-016) via REST interne (`GET /contacts/{phone}/score`), jamais en cross-schéma (D11). Limite connue : `success_count` par canal non persisté dans `contact_channel_scores` → reconstruit par inversion (précision ±1 pt) ; colonne dédiée = amélioration future (migration 0015) si précision absolue requise. |
 
 ---
 
@@ -137,6 +138,20 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 ---
 
 ## 7. Journal des sessions
+
+### Session 2026-07-12 (T-012 — Contact Intelligence)
+1. **T-012 livré Done/PASS** (Vague 1 V1) : service `src/contact-intelligence` complet en Clean Architecture 4 couches, stdlib-only,
+   go.mod/go.sum inchangés. go-engineer → qa + architect-reviewer (parallèle) → PM. PASS du 1er coup.
+2. **Décisions/faits** : scoring **Laplace α=1** (D26) ; **upsert transactionnel** (`OutcomeStore.RecordAtomically` : score `ON CONFLICT (phone,channel)`
+   + compteurs `contacts` + historique dans un seul `sql.Tx`) — la vigilance de T-011 est honorée ; port **8086** (suite 8081-8085) ; consumer DLR
+   `message.delivered`/`message.failed` → `RecordDeliveryOutcome`. QA PASS 8/8 (29 tests, 0 régression, 17 pkgs ok). Architecture CONFORME.
+3. **Contrat pour T-016** : `GET /contacts/{phone}/score` → `{phone, delivery_score, found, channel_scores[{channel, score, sample_size,
+   last_success_at}]}` ; contact inconnu → `found=false` + `delivery_score=50` (jamais 404) ; `channel_scores` trié `score DESC`.
+   **T-016 doit y accéder par REST interne** (client `adapters/clients/`, port output `ContactScoreClient` C2) avec **fallback gracieux**
+   si le service est indisponible (dégradation vers `provider_scores` seul) — jamais d'accès cross-schéma (D11).
+4. **Dette pré-existante relevée** (par l'architect-reviewer, non introduite par T-012) : **aucune config depguard/golangci** dans le dépôt
+   alors que CLAUDE.md/ARCHITECTURE.md §7 l'affirment → conformité manuelle seule ; tâche devops à créer (voir Blocages tracker). Vigilances mineures
+   T-012 : `success_count` par canal reconstruit par inversion (±1 pt) ; parseur `text[]` manuel ; `EnrichRecipient` non exposé.
 
 ### Session 2026-07-11 (suite — planification V2)
 1. **Affinage du backlog V2 🔵** au niveau de détail V1 (planification pure, aucun code, aucun commit).
