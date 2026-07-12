@@ -140,7 +140,24 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 
 ## 7. Journal des sessions
 
+### Session 2026-07-12 (suite — T-019 schéma Analytics ; ✅ Vague 1 V1 complète)
+1. **T-019 Done/PASS** (dernière tâche schéma de la Vague 1 V1) : `migrations/0017_analytics_kpi.sql` (db-engineer → qa → PM ; pas
+   d'architect-reviewer, SQL pur). Ajoute la latence (`delivery_latency_ms_sum`), la **vue matérialisée `analytics.kpi_daily`** (4 KPIs
+   produit : délivrabilité, échec, coût moyen/msg, latence moyenne), les index de perf et l'index UNIQUE requis pour `REFRESH CONCURRENTLY`.
+2. **Choix de modélisation** : **latence stockée en SOMME** (pas en moyenne) → agrégat additif correct (une moyenne stockée n'est pas
+   cumulable) ; MV `WITH NO DATA` (1er refresh au boot du service, pas dans la migration) ; requête MV strictement `FROM analytics.message_daily`
+   (D11, données par événements). Protection division/0 via `CASE WHEN dénom>0`. QA PASS 8/8 ; observation cosmétique (commentaire NULLIF vs
+   DDL CASE WHEN) soldée par le PM (commentaire aligné + atlas hash/validate re-EXIT 0).
+3. **Vigilances T-020 (service Analytics Go)** : consumer `message.delivered`/`message.failed` → UPSERT `message_daily`
+   (`ON CONFLICT (day,workspace_id,country,channel) DO UPDATE`, incrémente sent/delivered/failed/cost/latency_sum ; **clarifier quel événement
+   incrémente `sent`** pour éviter le double-comptage) ; job de refresh (1er non-concurrent car MV vide, puis `REFRESH ... CONCURRENTLY`,
+   timeout ~30s, intervalle `ANALYTICS_REFRESH_INTERVAL` défaut 5 min, en couche 4) ; use cases `GetKpis`/`GetTimeSeries` lisent `kpi_daily` ;
+   `search_path=analytics` strict, aucun accès cross-schéma (D11).
+4. **Jalon** : **Vague 1 V1 COMPLÈTE** — T-011 (schéma Contact Intel), T-012 (service Contact Intel), T-013 (schéma provider Telegram),
+   T-017 (schéma Campaign), T-019 (schéma Analytics) tous Done/PASS. Suite = Vague 2 : T-014 → T-016 → T-018 → T-020.
+
 ### Session 2026-07-12 (suite — T-017 schéma Campaign)
+1. **T-017 Done/PASS** (Vague 1 V1) : `migrations/0016_campaign_execution.sql` (db-engineer → qa → PM ; pas d'architect-reviewer, SQL pur).
 1. **T-017 Done/PASS** (Vague 1 V1) : `migrations/0016_campaign_execution.sql` (db-engineer → qa → PM ; pas d'architect-reviewer, SQL pur).
    Enrichit les 3 tables `campaign` : `campaigns` (message_body/channel_strategy/estimated_cost/currency/rate_limit),
    `campaign_recipients` (status + `message_id` + UNIQUE dédup `(campaign_id, recipient)`), `campaign_runs` (total/sent/delivered/failed
