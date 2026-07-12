@@ -81,12 +81,21 @@ func main() {
 		cfg.TwilioAuthToken,
 		cfg.TwilioFromNumber,
 	)
+	// Adapter Telegram Bot API.
+	// Le bot token est charge depuis la config (env TELEGRAM_BOT_TOKEN).
+	// TODO(production) D27 : migrer vers provider_credentials (AES-GCM, T-024 DevOps).
+	telegramAdapter := providers.NewTelegramBot(
+		cfg.TelegramBaseURL,
+		cfg.TelegramBotToken,
+	)
 
 	// Registry : mappe chaque providerId a son implementation concrete.
 	// Les clefs correspondent aux valeurs de provider.providers.id dans la base.
+	// "telegram-bot" est seede dans migrations/0015_provider_telegram.sql (T-013).
 	registry := map[string]output.Provider{
 		"whatsapp-meta": whatsappAdapter,
 		"sms-twilio":    smsAdapter,
+		"telegram-bot":  telegramAdapter,
 	}
 
 	// --- Couche 2 : use cases (injection manuelle des ports) ---

@@ -140,7 +140,22 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 
 ## 7. Journal des sessions
 
+### Session 2026-07-12 (suite — T-014 adapter provider Telegram ; Vague 2 démarrée)
+1. **T-014 Done/PASS** (Vague 2 V1, tâche 1/4) : adapter `src/provider/internal/adapters/providers/telegram.go` implémentant le port
+   `output.Provider` (stub `net/http` + `TODO(production)`, pattern WhatsAppMeta/SMSTwilio). go-engineer → qa (PASS 9/9, 64 tests) +
+   architect-reviewer (CONFORME) → PM (correction observation) → re-vérif. Registry `"telegram-bot"` câblé dans `main.go`.
+2. **Faits/décisions** : mapping statut pur `MapTelegramResponseStatus` (ok→Sent, 400/403→Rejected, ≥500/timeout→Failed) ; **coût = 0**
+   (Telegram Bot API gratuit) ; **capabilities en constantes Go** dans l'adapter (D27, pas de colonne base) ; assertion de port corrigée en
+   `var _ output.Provider = (*TelegramBot)(nil)` (observation QA/archi soldée).
+3. **Dette D27 (token en config/env)** : l'adapter lit le token via env `TELEGRAM_BOT_TOKEN` — comme TOUS les adapters existants
+   (WhatsApp/SMS), aucun ne lit `provider_credentials` en base. La lecture chiffrée AES-GCM (D27) reste un `TODO(production)` transverse au
+   service provider, à câbler quand T-024 (Secret K8s clé AES-GCM) sera prêt. Tracée en Blocages.
+4. **Vigilances suite** : T-015 (routing : channel `'telegram'`, fallback WhatsApp→SMS→Telegram) ; T-038 (seed : `provider_pricing` cost=0
+   pour telegram-bot, score de délivrabilité par défaut ~75-80 proposé — à trancher par db-engineer) ; DLR Telegram réel = webhook (adapter
+   distinct ultérieur, pas de pull).
+
 ### Session 2026-07-12 (suite — T-019 schéma Analytics ; ✅ Vague 1 V1 complète)
+1. **T-019 Done/PASS** (dernière tâche schéma de la Vague 1 V1) : `migrations/0017_analytics_kpi.sql` (db-engineer → qa → PM ; pas
 1. **T-019 Done/PASS** (dernière tâche schéma de la Vague 1 V1) : `migrations/0017_analytics_kpi.sql` (db-engineer → qa → PM ; pas
    d'architect-reviewer, SQL pur). Ajoute la latence (`delivery_latency_ms_sum`), la **vue matérialisée `analytics.kpi_daily`** (4 KPIs
    produit : délivrabilité, échec, coût moyen/msg, latence moyenne), les index de perf et l'index UNIQUE requis pour `REFRESH CONCURRENTLY`.

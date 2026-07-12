@@ -27,6 +27,16 @@ type Config struct {
 	TwilioAccountSID string
 	TwilioAuthToken  string
 	TwilioFromNumber string
+
+	// Telegram Bot API
+	// TelegramBaseURL est l'URL de base de l'API Telegram Bot.
+	// Env : TELEGRAM_BASE_URL (defaut : "https://api.telegram.org").
+	TelegramBaseURL string
+	// TelegramBotToken est le token du bot Telegram (format "123456:ABC-DEF...").
+	// Env : TELEGRAM_BOT_TOKEN. Ne jamais logger.
+	// TODO(production) D27 : lire depuis provider.provider_credentials (AES-GCM)
+	// quand le mecanisme de dechiffrement K8s sera implemente (T-024 DevOps).
+	TelegramBotToken string
 }
 
 // Load lit les variables d'environnement et retourne une Config avec des
@@ -47,6 +57,9 @@ func Load() Config {
 		TwilioAccountSID: envOr("TWILIO_ACCOUNT_SID", ""),
 		TwilioAuthToken:  envOr("TWILIO_AUTH_TOKEN", ""),
 		TwilioFromNumber: envOr("TWILIO_FROM_NUMBER", ""),
+
+		TelegramBaseURL:  envOr("TELEGRAM_BASE_URL", "https://api.telegram.org"),
+		TelegramBotToken: envOr("TELEGRAM_BOT_TOKEN", ""),
 	}
 }
 
