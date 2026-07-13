@@ -15,11 +15,13 @@ import (
 // --- Mocks des use cases ---
 
 type mockGetDecision struct {
-	decision domain.RoutingDecision
-	err      error
+	decision          domain.RoutingDecision
+	err               error
+	capturedRecipient string // T-016 : permet de verifier que le champ recipient est transmis
 }
 
-func (m *mockGetDecision) Execute(_ context.Context, _, _, _ string, _ int) (domain.RoutingDecision, error) {
+func (m *mockGetDecision) Execute(_ context.Context, _, _, _, recipient string, _ int) (domain.RoutingDecision, error) {
+	m.capturedRecipient = recipient
 	return m.decision, m.err
 }
 
@@ -35,6 +37,13 @@ func (m *mockUpdateScore) Execute(_ context.Context, _, _ string, _ int) error {
 
 func newHandler(getErr error, getDecision domain.RoutingDecision, scoreErr error) *RoutingHandler {
 	return NewRoutingHandler(&mockGetDecision{decision: getDecision, err: getErr}, &mockUpdateScore{err: scoreErr})
+}
+
+// newHandlerWithCapture cree un RoutingHandler avec un mock qui capture les arguments du use case.
+// Utilise pour les tests T-016 verifiant la transmission du champ recipient.
+func newHandlerWithCapture(getDecision domain.RoutingDecision) (*RoutingHandler, *mockGetDecision) {
+	mock := &mockGetDecision{decision: getDecision}
+	return NewRoutingHandler(mock, &mockUpdateScore{}), mock
 }
 
 func postJSON(t *testing.T, h http.HandlerFunc, path string, body any) *httptest.ResponseRecorder {
@@ -243,5 +252,61 @@ func TestScoreFeedback_ScoreBoundaries_ValidExtremes(t *testing.T) {
 		if rr.Code != http.StatusNoContent {
 			t.Errorf("score=%d : attendu 204, obtenu %d", score, rr.Code)
 		}
+	}
+}
+
+// --- Tests T-016 : champ recipient dans le handler ---
+
+// TestRoute_RecipientPropagatedToUseCase verifie que le champ "recipient" du DTO
+// est correctement extrait du corps JSON et transmis au use case (critere C8/T-016).
+func TestRoute_RecipientPropagatedToUseCase(t *testing.T) {
+	decision := domain.RoutingDecision{
+		ProviderID:    "p_best",
+		Channel:       domain.ChannelSMS,
+		EstimatedCost: domain.Money{Amount: 100, Currency: "XAF"},
+		Strategy:      domain.StrategyHighestDelivery,
+	}
+	h, mock := newHandlerWithCapture(decision)
+
+	rr := postJSON(t, h.Route, "/route", RouteRequest{
+		WorkspaceID:    "ws-1",
+		Channel:        "sms",
+		Country:        "CM",
+		RecipientCount: 1,
+		Recipient:      "+237612345678",
+	})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("attendu 200, obtenu %d — body: %s", rr.Code, rr.Body.String())
+	}
+	if mock.capturedRecipient != "+237612345678" {
+		t.Errorf("recipient transmis au use case = %q, attendu %q", mock.capturedRecipient, "+237612345678")
+	}
+}
+
+// TestRoute_RecipientOmitted_EmptyStringPropagated verifie que si recipient est absent
+// du JSON, une chaine vide est transmise au use case (retrocompatibilite, critere C8/T-016).
+func TestRoute_RecipientOmitted_EmptyStringPropagated(t *testing.T) {
+	decision := domain.RoutingDecision{
+		ProviderID:    "p_best",
+		Channel:       domain.ChannelSMS,
+		EstimatedCost: domain.Money{Amount: 100, Currency: "XAF"},
+		Strategy:      domain.StrategyHighestDelivery,
+	}
+	h, mock := newHandlerWithCapture(decision)
+
+	// Pas de champ Recipient dans le DTO (omitempty → absent du JSON).
+	rr := postJSON(t, h.Route, "/route", RouteRequest{
+		WorkspaceID:    "ws-1",
+		Channel:        "sms",
+		Country:        "CM",
+		RecipientCount: 1,
+	})
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("attendu 200, obtenu %d — body: %s", rr.Code, rr.Body.String())
+	}
+	if mock.capturedRecipient != "" {
+		t.Errorf("recipient doit etre vide si omis, obtenu %q", mock.capturedRecipient)
 	}
 }

@@ -36,3 +36,27 @@ type RoutingRuleRepository interface {
 	// Retourne domain.ErrRuleNotFound si aucune regle n'est configuree pour ce workspace.
 	GetByWorkspace(ctx context.Context, workspaceID string) (domain.RoutingRule, error)
 }
+
+// ContactScoreClient permet d'obtenir le score de joignabilite d'un contact sur un canal.
+// Implemente en couche 3 (client REST vers le service contact-intelligence).
+//
+// Semantique du score retourne :
+//   - score [0,100] : joignabilite du destinataire sur ce canal (Laplace α=1).
+//   - found=false : contact inconnu → score=50 (prior neutre, jamais d'erreur 404).
+//   - Si le canal demande est absent des scores par canal du contact, le score global
+//     de delivraison (delivery_score) est retourne en repli.
+//
+// Le use case n'appelle ce port QUE pour la strategie highest_delivery.
+// En cas d'erreur (timeout, service indisponible, JSON invalide), le use case
+// degrade gracieusement vers les provider_scores seuls (pas d'erreur propagee).
+//
+// IMPORTANT (isolation inter-services) : cette interface utilise uniquement des types
+// primitifs Go (int, bool, string). L'implementation concrete (couche 3) parle HTTP —
+// elle n'importe jamais fleece/src/contact-intelligence/... (D11, D19).
+type ContactScoreClient interface {
+	// GetChannelScore retourne le score de joignabilite du destinataire phone sur channel.
+	// Si le contact est inconnu (found=false), score=50 (prior neutre Laplace).
+	// Si le canal n'est pas dans les scores par canal, retourne le score global de delivraison.
+	// N'est jamais 404 : contact inconnu → found=false, score=50, err=nil.
+	GetChannelScore(ctx context.Context, phone, channel string) (score int, found bool, err error)
+}

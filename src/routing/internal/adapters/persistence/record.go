@@ -35,7 +35,7 @@ func (r pricingRecord) toEntity(currency string) domain.ProviderPricing {
 // scoreRecord est le modele de la table routing.provider_scores.
 // Inclut les colonnes ajoutees par la migration 0013 :
 //   - avg_latency_ms INTEGER NOT NULL DEFAULT 0
-//   - country        VARCHAR(10) NOT NULL DEFAULT ''
+//   - country        VARCHAR(10) NOT NULL DEFAULT ”
 type scoreRecord struct {
 	Provider     string
 	Channel      string
@@ -57,7 +57,7 @@ func (r scoreRecord) toEntity() domain.ProviderScore {
 
 // ruleRecord est le modele de la table routing.routing_rules.
 // Inclut les colonnes ajoutees par la migration 0013 :
-//   - channel VARCHAR(50) NOT NULL DEFAULT ''
+//   - channel VARCHAR(50) NOT NULL DEFAULT ”
 //   - config  JSONB (nullable)
 type ruleRecord struct {
 	WorkspaceID string

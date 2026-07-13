@@ -18,6 +18,13 @@ type Config struct {
 	// La table routing.provider_pricing ne stocke pas la devise ; l'adapter de persistence
 	// utilise cette valeur pour construire le Money des entites domaine.
 	DefaultCurrency string
+
+	// ContactIntelAPIURL est l'URL de base du service contact-intelligence.
+	// Exemple : "http://contact-intelligence:8086".
+	// Si vide, le client contact-intelligence n'est pas instancie (nil) et l'enrichissement
+	// du score contact est desactive — le routing degrade vers provider_scores seuls.
+	// Ce comportement de degradation gracieuse est documente dans le use case GetRoutingDecision.
+	ContactIntelAPIURL string
 }
 
 // Load lit les variables d'environnement et retourne une Config avec des
@@ -29,6 +36,7 @@ func Load() Config {
 		PostgresDriver:     envOr("POSTGRES_DRIVER", "postgres"),
 		PostgresSearchPath: envOr("POSTGRES_SEARCH_PATH", "routing"),
 		DefaultCurrency:    envOr("DEFAULT_CURRENCY", "XAF"),
+		ContactIntelAPIURL: envOr("CONTACT_INTEL_API_URL", ""),
 	}
 }
 

@@ -5,11 +5,23 @@ package http
 import "fmt"
 
 // RouteRequest est le DTO d'entree de l'endpoint POST /route.
+//
+// Champ optionnel ajoute en T-016 :
+//   - Recipient : numero de telephone du destinataire (format E.164, ex. "+237612345678").
+//     Si present et non vide, le use case GetRoutingDecision l'utilise UNIQUEMENT pour
+//     la strategie highest_delivery afin d'enrichir le score provider avec le score de
+//     joignabilite du contact (service contact-intelligence).
+//     Si absent (vide ou omis), l'enrichissement est simplement desactive : comportement
+//     inchange pour les appelants existants (retro-compatible).
 type RouteRequest struct {
 	WorkspaceID    string `json:"workspace_id"`
 	Channel        string `json:"channel"`
 	Country        string `json:"country"`
 	RecipientCount int    `json:"recipient_count"`
+	// Recipient est le numero de telephone du destinataire (optionnel).
+	// Utilise uniquement pour la strategie highest_delivery (enrichissement contact T-016).
+	// Laisser vide pour desactiver l'enrichissement (retrocompatible).
+	Recipient string `json:"recipient,omitempty"`
 }
 
 // validate verifie que les champs obligatoires sont presents et valides.

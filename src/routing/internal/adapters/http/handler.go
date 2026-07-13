@@ -13,8 +13,13 @@ import (
 // getRoutingDecisionUseCase est l'interface locale du use case GetRoutingDecision.
 // Definie ici (couche 3) pour eviter une dependance vers les ports input (couche 2)
 // et permettre des mocks faciles dans les tests du handler.
+//
+// Signature mise a jour (T-016) : le parametre recipient (E.164) est passe au use case
+// pour l'enrichissement du score contact (highest_delivery). Il est extrait du champ
+// optionnel "recipient" du DTO RouteRequest. Si absent, la string vide desactive
+// l'enrichissement contact sans impacter les autres strategies.
 type getRoutingDecisionUseCase interface {
-	Execute(ctx context.Context, workspaceID, channel, country string, recipientCount int) (domain.RoutingDecision, error)
+	Execute(ctx context.Context, workspaceID, channel, country, recipient string, recipientCount int) (domain.RoutingDecision, error)
 }
 
 // updateProviderScoreUseCase est l'interface locale du use case UpdateProviderScore.
@@ -24,8 +29,8 @@ type updateProviderScoreUseCase interface {
 
 // RoutingHandler regroupe les handlers REST du service routing.
 type RoutingHandler struct {
-	getDecision  getRoutingDecisionUseCase
-	updateScore  updateProviderScoreUseCase
+	getDecision getRoutingDecisionUseCase
+	updateScore updateProviderScoreUseCase
 }
 
 // NewRoutingHandler cree un RoutingHandler avec les use cases injectes.
@@ -68,7 +73,7 @@ func (h *RoutingHandler) Route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	decision, err := h.getDecision.Execute(r.Context(), req.WorkspaceID, req.Channel, req.Country, req.RecipientCount)
+	decision, err := h.getDecision.Execute(r.Context(), req.WorkspaceID, req.Channel, req.Country, req.Recipient, req.RecipientCount)
 	if err != nil {
 		h.handleError(w, err)
 		return

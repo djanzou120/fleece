@@ -14,20 +14,21 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"fleece/src/go/app"
+	"fleece/src/routing/internal/adapters/clients"
 	adapterhttp "fleece/src/routing/internal/adapters/http"
 	"fleece/src/routing/internal/adapters/persistence"
+	"fleece/src/routing/internal/application/ports/output"
 	"fleece/src/routing/internal/application/usecases"
 	"fleece/src/routing/internal/infrastructure/config"
 	"fleece/src/routing/internal/infrastructure/httpserver"
 	"fleece/src/routing/internal/infrastructure/postgres"
-
-	"net/http"
-	"time"
 )
 
 func main() {
@@ -68,13 +69,23 @@ func main() {
 		defer sqlDB.Close()
 	}
 
-	_ = &http.Client{Timeout: 10 * time.Second} // reserve pour extension future (clients inter-services)
+	// --- Couche 3 : client REST contact-intelligence (driven) ---
+	// Si CONTACT_INTEL_API_URL est vide, on injecte nil : le use case degrade
+	// gracieusement vers provider_scores seuls (aucun enrichissement contact).
+	var contactScoreClient output.ContactScoreClient
+	if cfg.ContactIntelAPIURL != "" {
+		contactScoreClient = clients.NewContactIntelClient(cfg.ContactIntelAPIURL)
+		log.Printf("routing: contact-intelligence active sur %s", cfg.ContactIntelAPIURL)
+	} else {
+		log.Printf("routing: CONTACT_INTEL_API_URL non configure — enrichissement contact desactive")
+	}
 
 	// --- Couche 2 : use cases (injection manuelle des ports) ---
 	getDecisionUC := &usecases.GetRoutingDecision{
-		Pricing: pricingRepo,
-		Scores:  scoreRepo,
-		Rules:   ruleRepo,
+		Pricing:      pricingRepo,
+		Scores:       scoreRepo,
+		Rules:        ruleRepo,
+		ContactScore: contactScoreClient, // nil si CONTACT_INTEL_API_URL non configure
 	}
 	updateScoreUC := &usecases.UpdateProviderScore{
 		Scores: scoreRepo,
