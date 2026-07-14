@@ -5,7 +5,7 @@
 > **À lire en premier** au début d'une session pour retrouver le contexte. **À mettre à jour** à la fin
 > de tout changement structurant (nouvelle décision, nouveau module, changement de convention).
 >
-> Dernière mise à jour : **2026-07-05**.
+> Dernière mise à jour : **2026-07-14**.
 
 ---
 
@@ -24,6 +24,7 @@ sur le meilleur canal (SMS, WhatsApp, Telegram, …), au meilleur coût, avec la
 | `user-story.md` | User stories Dashboard + Intégration API (format complet + critères d'acceptation). |
 | `ARCHITECTURE.md` | Structure de fichiers + Clean Architecture + conventions réelles du dépôt. |
 | `MEMORY.md` | **Ce fichier** — mémoire/journal. |
+| `MIGRATION_PLAN.md` | **Plan de migration vers l'architecture simplifiée** (M-001..M-029, 6 phases). Source de vérité pour la migration. V1/V2 suspendues. |
 | `design/DESIGN.md` | **Design système complet** — tokens CSS, typographie, composants, layouts. Chargé au SessionStart. |
 | `design/Fleece Dashboard.dc.html` | Design interactif du dashboard (source claude.ai/design). |
 | `design/Fleece Auth & Onboarding.dc.html` | Design auth + onboarding 4 étapes. |
@@ -140,6 +141,32 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 ---
 
 ## 7. Journal des sessions
+
+### Session 2026-07-14 — Pivot architecture + plan de migration
+
+1. **Pivot majeur : abandon de la Clean Architecture stricte multi-services** (décision utilisateur, session suspendue en cours de T-018).
+   Raison : trop de boilerplate, overhead opérationnel 8 services Go. Inspiration : `../winmarket/backend` (flat Service struct, accès DB direct,
+   1 fichier/resolver, workers isolés, zconfig DI, sqlx).
+
+2. **Branche `wip/T-018-campaign`** isolée (commit d4520df, poussée) — partiel T-018 préservé pour réutilisation dans Phase 2 de la migration.
+
+3. **Architecture cible** (3 services Go) :
+   - `src/api` — tous les endpoints HTTP internes (messages, routing, contacts, campaigns, analytics, wallet, webhooks)
+   - `src/core-processor` — workers DLR (consumers `message.delivered`/`message.failed`)
+   - `src/intelligence-processor` — scoring contact, agrégat analytics, scheduler campagne, refresh MV
+
+4. **Plan de migration** écrit dans `.ia/MIGRATION_PLAN.md` (M-001..M-029, 6 phases + ordre d'exécution). Ce fichier est le
+   **tracker de référence** pour la migration — le PM agent le lit au démarrage de chaque session de migration.
+
+5. **Backlog V1/V2 SUSPENDU** (T-011..T-045 dans `PROJECT_TRACKER.md`) — ne pas continuer tant que la migration n'est pas Done/PASS.
+
+6. **Décisions architecture simplifiée** (D-M*) :
+   - DI via `github.com/synthesio/zconfig` (struct tags) remplace la composition root manuelle
+   - `github.com/jmoiron/sqlx` + `github.com/lib/pq` remplacent `database/sql` pur
+   - 1 fichier par endpoint, 1 fichier par handler d'événement RabbitMQ
+   - Abstractions conservées : interface `Provider`, machines à états `Message`/`Campaign`, fonctions pures `CombineScore`/`Laplace`
+   - `src/api` accède à TOUS les schémas PG avec tables préfixées (`messaging.messages`, etc.)
+   - Services TS inchangés (`src/auth-api`, `src/graphql-api`, `src/rest-api`)
 
 ### Session 2026-07-13 (T-016 — routing × Contact Intelligence)
 1. **T-016 Done/PASS** (Vague 2 V1, tâche 2/4) : `highest_delivery` combine le score provider (`provider_scores`) et le score de
