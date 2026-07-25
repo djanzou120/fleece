@@ -126,6 +126,22 @@ func CombineScore(providerScore, contactScore int) int {
 	return clamp(combined, 0, 100)
 }
 
+// enrichScoresWithContact combine chaque score provider avec contactScore via
+// CombineScore, sauf si err est non-nil (fallback gracieux D28 : la lecture du
+// score contact a echoue — on conserve les scores provider inchanges plutot que
+// de faire echouer le routage). Fonction pure, testable sans DB : le caller
+// (HandleSendMessage, HandleRoutingSelect, HandleRoutingEstimate) lui passe
+// l'erreur retournee par loadContactScore.
+func enrichScoresWithContact(scores []ProviderScore, contactScore int, err error) []ProviderScore {
+	if err != nil {
+		return scores
+	}
+	for i := range scores {
+		scores[i].Score = CombineScore(scores[i].Score, contactScore)
+	}
+	return scores
+}
+
 // clamp borne v dans [min, max].
 // Defini une seule fois dans ce fichier ; reutilise par scorer.go.
 func clamp(v, min, max int) int {

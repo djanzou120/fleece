@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"fleece/src/api"
@@ -97,6 +98,12 @@ func NewTelegramBot(baseURL, botToken string) *TelegramBot {
 // L'ExternalID retourne sera le champ "result.message_id" (entier) de la reponse
 // Telegram, convertie en string (ex. "42"). Ce message_id permet de correlater
 // les DLR et de referencer le message pour les operations ulterieures.
+//
+// CONTRAT external_id (D-M13, partage avec webhooks_telegram.go) : l'ExternalID
+// retourne par Send() DOIT toujours etre la representation decimale d'un entier
+// (le message_id Telegram), jamais une valeur prefixee ou opaque — c'est cette
+// meme forme que webhooks_telegram.go.resolveTelegramCorrelation compare a
+// update.message.message_id (converti en string) pour correler un DLR.
 // IMPORTANT : ne jamais inclure botToken dans les logs.
 func (p *TelegramBot) Send(_ context.Context, to, body string) (api.ProviderResult, error) {
 	// Validation de base.
@@ -107,10 +114,13 @@ func (p *TelegramBot) Send(_ context.Context, to, body string) (api.ProviderResu
 		return api.ProviderResult{}, fmt.Errorf("telegram_bot: contenu vide: %w", errSendFailed)
 	}
 
-	// TODO(production): executer la vraie requete HTTP vers l'API Telegram.
-	// Stub : genere un externalId non vide simulant un message_id Telegram.
-	// Le message_id Telegram est un entier croissant par chat ; on simule avec le nanos.
-	externalID := fmt.Sprintf("tg%d", time.Now().UnixNano())
+	// TODO(production): executer la vraie requete HTTP vers l'API Telegram et
+	// utiliser le veritable result.message_id retourne par sendMessage.
+	// Stub (D-M08, hors perimetre ici) : simule un message_id Telegram par un
+	// entier positif base sur l'horloge, SANS prefixe non numerique — respecter
+	// strictement le contrat decrit ci-dessus (D-M13 : un stub qui ne produit pas
+	// un entier decimal casse silencieusement toute correlation DLR cote webhook).
+	externalID := strconv.FormatInt(time.Now().UnixNano(), 10)
 	log.Printf("[telegram_bot:stub] Send to=%s externalId=%s", to, externalID)
 	// NOTE : le botToken n'est jamais inclus dans les logs.
 

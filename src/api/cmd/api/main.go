@@ -7,14 +7,26 @@
 //	POSTGRES_DSN  — DSN PostgreSQL (ex. postgres://user:pass@host:5432/fleece?sslmode=disable)
 //	AMQP_DSN      — URL RabbitMQ    (ex. amqp://guest:guest@localhost:5672/)
 //
-// Si une variable est absente ou si la connexion échoue, le programme log et retourne.
-// En production, envisager os.Exit(1) à la place.
+// Variables d'environnement optionnelles (webhooks paiement — voir webhooks_om.go/
+// webhooks_mtn.go pour la politique de validation appliquée si elles sont vides) :
+//
+//	OM_WEBHOOK_SECRET  — clé HMAC-SHA256 des callbacks Orange Money.
+//	MTN_WEBHOOK_SECRET — clé HMAC-SHA256 des callbacks MTN Mobile Money.
+//
+// Si une variable requise est absente ou si la connexion échoue, le programme log et
+// retourne. En production, envisager os.Exit(1) à la place.
+//
+// Arrêt gracieux : le contexte racine (goapp.Context) est annulé sur SIGINT/SIGTERM ;
+// le serveur HTTP est alors arrêté via http.Server.Shutdown avec un délai de drain
+// (shutdownTimeout) pour laisser les requêtes en cours se terminer (D-M07 soldée).
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
 	"net/http"
 	"os"
+	"time"
 
 	"fleece/src/api"
 	"fleece/src/api/providers"
@@ -24,25 +36,29 @@ import (
 	gosql "fleece/src/go/sql"
 )
 
+// shutdownTimeout est le délai de drain accordé au serveur HTTP pour terminer les
+// requêtes en cours lors d'un arrêt gracieux (SIGINT/SIGTERM).
+const shutdownTimeout = 10 * time.Second
+
 func main() {
 	// Contexte racine : annulé sur SIGINT/SIGTERM.
 	ctx, cancel := goapp.Context()
 	defer cancel()
-	_ = ctx
 
-	// Logger structuré (JSON en production, text en dev).
+	// Logger structuré (JSON en production, text en dev). Utilisé pour TOUS les
+	// logs de ce composition root — plus de log.Printf stdlib (D-M07).
 	logger := golog.Init("info", "text")
 	logger.Info("api: starting", "version", goapp.Version)
 
 	// PostgreSQL — DSN depuis l'environnement.
 	postgresDSN := os.Getenv("POSTGRES_DSN")
 	if postgresDSN == "" {
-		log.Printf("api: POSTGRES_DSN is not set — cannot start")
+		logger.Error("api: POSTGRES_DSN is not set — cannot start")
 		return
 	}
 	db, err := gosql.Open(postgresDSN)
 	if err != nil {
-		log.Printf("api: postgres unavailable: %v", err)
+		logger.Error("api: postgres unavailable", "err", err)
 		return
 	}
 	defer db.Close()
@@ -50,7 +66,7 @@ func main() {
 	// RabbitMQ — DSN depuis l'environnement.
 	amqpDSN := os.Getenv("AMQP_DSN")
 	if amqpDSN == "" {
-		log.Printf("api: AMQP_DSN is not set — cannot start")
+		logger.Error("api: AMQP_DSN is not set — cannot start")
 		return
 	}
 	amqpConn := &goamqp.Conn{
@@ -58,7 +74,7 @@ func main() {
 		Logger: logger,
 	}
 	if err := amqpConn.Init(); err != nil {
-		log.Printf("api: rabbitmq unavailable: %v", err)
+		logger.Error("api: rabbitmq unavailable", "err", err)
 		return
 	}
 	defer amqpConn.Close()
@@ -78,21 +94,60 @@ func main() {
 		TelegramBotToken:        os.Getenv("TELEGRAM_BOT_TOKEN"),
 	}
 
+	// Secrets HMAC des webhooks paiement (écart B2 — plus de constante codée en dur).
+	// Vides = validation désactivée avec log WARN par le handler (voir webhooks_om.go/
+	// webhooks_mtn.go) : acceptable en dev/test uniquement, jamais en production.
+	omWebhookSecret := os.Getenv("OM_WEBHOOK_SECRET")
+	if omWebhookSecret == "" {
+		logger.Warn("api: OM_WEBHOOK_SECRET non défini — callbacks Orange Money acceptés sans vérification (dev/test uniquement)")
+	}
+	mtnWebhookSecret := os.Getenv("MTN_WEBHOOK_SECRET")
+	if mtnWebhookSecret == "" {
+		logger.Warn("api: MTN_WEBHOOK_SECRET non défini — callbacks MTN MoMo acceptés sans vérification (dev/test uniquement)")
+	}
+
 	// Composition root : injection manuelle des dépendances dans Service.
 	svc := &api.Service{
-		DB:        db,
-		Logger:    logger,
-		AMQP:      amqpConn,
-		Providers: providers.BuildRegistry(providerCfg),
+		DB:               db,
+		Logger:           logger,
+		AMQP:             amqpConn,
+		Providers:        providers.BuildRegistry(providerCfg),
+		OMWebhookSecret:  omWebhookSecret,
+		MTNWebhookSecret: mtnWebhookSecret,
 	}
 	if err := svc.Init(); err != nil {
-		log.Printf("api: service init failed: %v", err)
+		logger.Error("api: service init failed", "err", err)
 		return
 	}
 
 	addr := ":8080"
-	logger.Info("api: listening", "addr", addr)
-	if err := http.ListenAndServe(addr, svc); err != nil {
-		log.Printf("api: server error: %v", err)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: svc,
+	}
+
+	// Démarrage du serveur HTTP dans une goroutine ; ListenAndServe bloque jusqu'à
+	// Shutdown() (retourne alors http.ErrServerClosed) ou une erreur réseau fatale.
+	serveErr := make(chan error, 1)
+	go func() {
+		logger.Info("api: listening", "addr", addr)
+		serveErr <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("api: server error", "err", err)
+		}
+	case <-ctx.Done():
+		// SIGINT/SIGTERM : arrêt gracieux avec délai de drain (D-M07 soldée).
+		logger.Info("api: shutdown signal received, draining connections", "timeout", shutdownTimeout)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logger.Error("api: graceful shutdown failed", "err", err)
+		} else {
+			logger.Info("api: shutdown complete")
+		}
 	}
 }

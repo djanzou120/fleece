@@ -25,6 +25,17 @@ func Open(dsn string) (*DB, error) {
 	return &DB{db: db}, nil
 }
 
+// NewFromSQLX wraps an already-open *sqlx.DB into a *DB.
+//
+// This is intended for tests and for cases where the connection (or a fake
+// database/sql/driver.Driver standing in for it) is opened outside of Open —
+// e.g. to inject a fake driver in unit tests without a real PostgreSQL
+// instance. Production code should use Open, which also verifies the
+// connection with a Ping.
+func NewFromSQLX(db *sqlx.DB) *DB {
+	return &DB{db: db}
+}
+
 // Close closes the underlying database connection pool.
 func (d *DB) Close() error {
 	return d.db.Close()
@@ -44,6 +55,18 @@ func (d *DB) Get(ctx context.Context, dest interface{}, query string, args ...in
 func (d *DB) Exec(ctx context.Context, query string, args ...interface{}) error {
 	_, err := d.db.ExecContext(ctx, query, args...)
 	return err
+}
+
+// ExecRows executes a query that does not return rows and reports how many
+// rows were affected. Useful for idempotent UPDATE statements where the caller
+// must distinguish "0 rows matched" (e.g. no record for a given correlation
+// key) from "the query failed" without erroring out the request.
+func (d *DB) ExecRows(ctx context.Context, query string, args ...interface{}) (int64, error) {
+	res, err := d.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Begin starts a new transaction and returns a Tx wrapping it.

@@ -174,3 +174,48 @@ func TestCombineScore(t *testing.T) {
 		})
 	}
 }
+
+// ---- enrichScoresWithContact (ecart B1 : fallback gracieux D28) ----
+
+// TestEnrichScoresWithContact_success verifie que, sans erreur, chaque score
+// provider est combine avec contactScore via CombineScore.
+func TestEnrichScoresWithContact_success(t *testing.T) {
+	t.Parallel()
+
+	scores := []ProviderScore{
+		{ProviderID: "twilio", Channel: "sms", Score: 90},
+		{ProviderID: "vonage", Channel: "sms", Score: 40},
+	}
+	got := enrichScoresWithContact(scores, 40, nil)
+
+	want := []int{CombineScore(90, 40), CombineScore(40, 40)}
+	for i, sc := range got {
+		if sc.Score != want[i] {
+			t.Errorf("scores[%d].Score = %d, voulu %d", i, sc.Score, want[i])
+		}
+	}
+}
+
+// TestEnrichScoresWithContact_errorFallback verifie que, sur erreur (ex. echec
+// de lecture DB via loadContactScore), les scores restent INCHANGES — le
+// routage ne doit jamais echouer ni se degrader a cause d'une panne du score
+// contact (D28 fallback gracieux).
+func TestEnrichScoresWithContact_errorFallback(t *testing.T) {
+	t.Parallel()
+
+	scores := []ProviderScore{
+		{ProviderID: "twilio", Channel: "sms", Score: 90},
+		{ProviderID: "vonage", Channel: "sms", Score: 40},
+	}
+	original := make([]ProviderScore, len(scores))
+	copy(original, scores)
+
+	got := enrichScoresWithContact(scores, 40, errors.New("db down"))
+
+	for i, sc := range got {
+		if sc.Score != original[i].Score {
+			t.Errorf("scores[%d].Score = %d, voulu inchange %d (fallback sur erreur)",
+				i, sc.Score, original[i].Score)
+		}
+	}
+}
