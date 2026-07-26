@@ -3,11 +3,11 @@ package providers
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"fleece/src/api"
+	golog "fleece/src/go/log"
 )
 
 // Assertion de conformite au port : ne compile pas si WhatsAppMeta n'implemente pas api.Provider.
@@ -34,6 +34,12 @@ type WhatsAppMeta struct {
 	// phoneNumberID est l'identifiant du numero WhatsApp Business.
 	// TODO(production): lire depuis la config (env WHATSAPP_META_PHONE_NUMBER_ID).
 	phoneNumberID string
+
+	// Logger est le logger structure partage (D-M17, Phase 3), optionnel :
+	// nil ⇒ aucun log emis (garde nil, meme pattern que s.AMQP == nil
+	// ailleurs dans le depot). Cable par providers.BuildRegistry depuis le
+	// composition root (src/api/cmd/api/main.go). Jamais log.Printf stdlib.
+	Logger *golog.Logger
 }
 
 // NewWhatsAppMeta cree un adapter WhatsApp Meta avec les parametres fournis.
@@ -71,7 +77,7 @@ func (p *WhatsAppMeta) Send(_ context.Context, to, body string) (api.ProviderRes
 	// TODO(production): executer la vraie requete HTTP vers l'API Meta.
 	// Stub : genere un externalId non vide pour simuler un envoi reussi.
 	externalID := fmt.Sprintf("wamid.HBgLNjM%d", time.Now().UnixNano())
-	log.Printf("[whatsapp_meta:stub] Send to=%s externalId=%s", to, externalID)
+	logInfo(p.Logger, "whatsapp_meta: stub send", "to", to, "external_id", externalID)
 
 	return api.ProviderResult{
 		ExternalID: externalID,
@@ -106,6 +112,6 @@ func (p *WhatsAppMeta) GetDeliveryStatus(_ context.Context, externalID string) (
 		return "", fmt.Errorf("whatsapp_meta: externalId vide: %w", errProviderUnavailable)
 	}
 	// TODO(production): requete GET vers l'API Meta pour obtenir le vrai statut.
-	log.Printf("[whatsapp_meta:stub] GetDeliveryStatus externalId=%s → sent", externalID)
+	logInfo(p.Logger, "whatsapp_meta: stub get_delivery_status", "external_id", externalID, "status", "sent")
 	return "sent", nil
 }

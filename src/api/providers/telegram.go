@@ -3,12 +3,12 @@ package providers
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
 
 	"fleece/src/api"
+	golog "fleece/src/go/log"
 )
 
 // Assertion de conformite au port : ne compile pas si TelegramBot n'implemente pas api.Provider.
@@ -66,6 +66,12 @@ type TelegramBot struct {
 	// Charge depuis env TELEGRAM_BOT_TOKEN. Ne jamais logger.
 	// TODO(production) D27: lire depuis provider_credentials (AES-GCM) quand disponible.
 	botToken string
+
+	// Logger est le logger structure partage (D-M17, Phase 3), optionnel :
+	// nil ⇒ aucun log emis (garde nil, meme pattern que s.AMQP == nil
+	// ailleurs dans le depot). Cable par providers.BuildRegistry depuis le
+	// composition root (src/api/cmd/api/main.go). Jamais log.Printf stdlib.
+	Logger *golog.Logger
 }
 
 // NewTelegramBot cree un adapter Telegram Bot avec les parametres fournis.
@@ -89,6 +95,33 @@ func NewTelegramBot(baseURL, botToken string) *TelegramBot {
 // to doit contenir le chat_id Telegram du destinataire (entier ou @username).
 // body doit etre non vide et inferieur a TelegramMaxMessageLength caracteres.
 //
+// CORRECTIF B2 (Phase 3, revue d'architecture) — DOCUMENTATION CORRIGEE :
+// l'ancienne affirmation D-M13 ("`to` EST le chat_id Telegram, et recipient ==
+// chat_id est donc TOUJOURS vrai") etait FAUSSE en general. Deux chemins reels
+// la violent :
+//   - SelectProvider (src/api/routing.go) est AGNOSTIQUE DU FORMAT du
+//     destinataire — rien ne filtre les providers par compatibilite de
+//     format. Un appelant peut tres bien fournir un numero E.164 en
+//     `recipient` alors que le routage choisit "telegram-bot" (cas normal des
+//     campagnes, src/intelligence-processor/on_campaign_run.go poste des
+//     numeros E.164 importes, pas des chat_id).
+//   - `to` peut aussi etre un @username Telegram (voir doc ci-dessus),
+//     jamais egal a un chat_id entier.
+//
+// CE QUE LE CODE FAIT REELLEMENT : messages_send.go (insertMessage) persiste
+// `to` TEL QUEL dans messaging.messages.recipient, quel que soit son format —
+// ce n'est un chat_id que si l'appelant en a fourni un ET que le routage a
+// effectivement selectionne ce provider pour CE message. La vraie clef de
+// correlation d'un DLR Telegram reste (chat_id, message_id) — le message_id
+// Telegram n'est unique que PAR CHAT — mais webhooks_telegram.go NE peut plus
+// supposer recipient == chat_id : il tente la correlation stricte
+// (external_id, provider_id, recipient=chat_id) puis, si elle echoue, un
+// REPLI sur (external_id, provider_id) seul, avec un log distinctif si ce
+// repli reussit la ou la stricte a echoue (voir webhooks_telegram.go, B2,
+// pour le detail). La vraie correction structurelle (capturer et persister le
+// chat_id dans une colonne DEDIEE, distincte de recipient) est la dette D-M27
+// (liee a D-M08, remplacement du stub Telegram), HORS PERIMETRE ici.
+//
 // TODO(production): construire et executer la vraie requete HTTP :
 //
 //	POST {baseURL}/bot{botToken}/sendMessage
@@ -99,7 +132,7 @@ func NewTelegramBot(baseURL, botToken string) *TelegramBot {
 // Telegram, convertie en string (ex. "42"). Ce message_id permet de correlater
 // les DLR et de referencer le message pour les operations ulterieures.
 //
-// CONTRAT external_id (D-M13, partage avec webhooks_telegram.go) : l'ExternalID
+// CONTRAT external_id (partage avec webhooks_telegram.go) : l'ExternalID
 // retourne par Send() DOIT toujours etre la representation decimale d'un entier
 // (le message_id Telegram), jamais une valeur prefixee ou opaque — c'est cette
 // meme forme que webhooks_telegram.go.resolveTelegramCorrelation compare a
@@ -121,7 +154,7 @@ func (p *TelegramBot) Send(_ context.Context, to, body string) (api.ProviderResu
 	// strictement le contrat decrit ci-dessus (D-M13 : un stub qui ne produit pas
 	// un entier decimal casse silencieusement toute correlation DLR cote webhook).
 	externalID := strconv.FormatInt(time.Now().UnixNano(), 10)
-	log.Printf("[telegram_bot:stub] Send to=%s externalId=%s", to, externalID)
+	logInfo(p.Logger, "telegram_bot: stub send", "to", to, "external_id", externalID)
 	// NOTE : le botToken n'est jamais inclus dans les logs.
 
 	return api.ProviderResult{
@@ -157,7 +190,7 @@ func (p *TelegramBot) GetDeliveryStatus(_ context.Context, externalID string) (s
 	}
 	// TODO(production): Telegram ne supporte pas le DLR en pull. On retourne "sent"
 	// (message transmis a Telegram) car c'est le dernier etat connu avec certitude.
-	log.Printf("[telegram_bot:stub] GetDeliveryStatus externalId=%s → sent", externalID)
+	logInfo(p.Logger, "telegram_bot: stub get_delivery_status", "external_id", externalID, "status", "sent")
 	return "sent", nil
 }
 

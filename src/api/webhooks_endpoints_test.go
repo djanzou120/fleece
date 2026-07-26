@@ -738,43 +738,65 @@ func TestMapTelegramStatusToRoutingKey(t *testing.T) {
 // ---- resolveTelegramCorrelation ----
 
 // TestResolveTelegramCorrelation couvre la fonction pure de decision de
-// correlation DLR Telegram (D-M13) : aucune I/O, testable sans DB.
+// correlation DLR Telegram (D-M13) : aucune I/O, testable sans DB. Depuis la
+// Phase 3, la fonction retourne aussi ChatID (chat_id Telegram, second membre
+// de la clef de correlation (chat_id, message_id) ≡ (recipient, external_id)).
 func TestResolveTelegramCorrelation(t *testing.T) {
 	cases := []struct {
 		name       string
 		msg        *telegramMessage
 		wantColumn string
 		wantValue  string
+		wantChatID string
 	}{
 		{
 			name:       "message_id non nul -> correlation par external_id",
 			msg:        &telegramMessage{MessageID: 42},
 			wantColumn: "external_id",
 			wantValue:  "42",
+			wantChatID: "",
+		},
+		{
+			name:       "message_id non nul + chat.id present -> correlation par external_id avec chat_id (D-M13)",
+			msg:        &telegramMessage{MessageID: 42, Chat: &telegramChat{ID: 987654321}},
+			wantColumn: "external_id",
+			wantValue:  "42",
+			wantChatID: "987654321",
+		},
+		{
+			name:       "message_id non nul + chat present mais chat.id == 0 -> chat_id absent (D-M13, repli)",
+			msg:        &telegramMessage{MessageID: 42, Chat: &telegramChat{ID: 0}},
+			wantColumn: "external_id",
+			wantValue:  "42",
+			wantChatID: "",
 		},
 		{
 			name:       "message_id nul + fleece_message_id UUID valide -> correlation par id",
 			msg:        &telegramMessage{FleeceMsgID: "550e8400-e29b-41d4-a716-446655440000"},
 			wantColumn: "id",
 			wantValue:  "550e8400-e29b-41d4-a716-446655440000",
+			wantChatID: "",
 		},
 		{
 			name:       "message_id nul + fleece_message_id invalide -> aucune correlation",
 			msg:        &telegramMessage{FleeceMsgID: "not-a-uuid"},
 			wantColumn: "",
 			wantValue:  "",
+			wantChatID: "",
 		},
 		{
 			name:       "message_id nul + fleece_message_id absent -> aucune correlation",
 			msg:        &telegramMessage{},
 			wantColumn: "",
 			wantValue:  "",
+			wantChatID: "",
 		},
 		{
 			name:       "message_id non nul prioritaire sur fleece_message_id valide",
 			msg:        &telegramMessage{MessageID: 7, FleeceMsgID: "550e8400-e29b-41d4-a716-446655440000"},
 			wantColumn: "external_id",
 			wantValue:  "7",
+			wantChatID: "",
 		},
 	}
 	for _, tc := range cases {
@@ -785,6 +807,9 @@ func TestResolveTelegramCorrelation(t *testing.T) {
 			}
 			if got.Value != tc.wantValue {
 				t.Errorf("resolveTelegramCorrelation(%+v).Value = %q, voulu %q", tc.msg, got.Value, tc.wantValue)
+			}
+			if got.ChatID != tc.wantChatID {
+				t.Errorf("resolveTelegramCorrelation(%+v).ChatID = %q, voulu %q", tc.msg, got.ChatID, tc.wantChatID)
 			}
 		})
 	}

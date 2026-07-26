@@ -1,6 +1,9 @@
 package providers
 
-import "fleece/src/api"
+import (
+	"fleece/src/api"
+	golog "fleece/src/go/log"
+)
 
 // ProviderConfig regroupe les credentials et URLs des trois providers.
 // Les valeurs sont lues depuis les variables d'environnement dans main.go
@@ -25,6 +28,12 @@ type ProviderConfig struct {
 	// TODO(production) D27: lire depuis provider.provider_credentials (AES-GCM, T-024 DevOps).
 	TelegramBaseURL  string
 	TelegramBotToken string
+
+	// Logger est le logger structure partage (D-M17, Phase 3), optionnel :
+	// nil ⇒ les trois adapters ne loggent rien (garde nil, voir logging.go).
+	// Cable par le composition root (src/api/cmd/api/main.go) — remplace les
+	// anciens log.Printf stdlib de sms.go/telegram.go/whatsapp.go.
+	Logger *golog.Logger
 }
 
 // BuildRegistry instancie les trois adapters providers et les enregistre sous
@@ -36,9 +45,18 @@ type ProviderConfig struct {
 //   - "whatsapp-meta" → WhatsAppMeta
 //   - "telegram-bot"  → TelegramBot
 func BuildRegistry(cfg ProviderConfig) map[string]api.Provider {
+	sms := NewSMSTwilio(cfg.TwilioBaseURL, cfg.TwilioAccountSID, cfg.TwilioAuthToken, cfg.TwilioFromNumber)
+	sms.Logger = cfg.Logger
+
+	whatsapp := NewWhatsAppMeta(cfg.WhatsAppMetaBaseURL, cfg.WhatsAppMetaToken, cfg.WhatsAppMetaPhoneNumber)
+	whatsapp.Logger = cfg.Logger
+
+	telegram := NewTelegramBot(cfg.TelegramBaseURL, cfg.TelegramBotToken)
+	telegram.Logger = cfg.Logger
+
 	return map[string]api.Provider{
-		"sms-twilio":    NewSMSTwilio(cfg.TwilioBaseURL, cfg.TwilioAccountSID, cfg.TwilioAuthToken, cfg.TwilioFromNumber),
-		"whatsapp-meta": NewWhatsAppMeta(cfg.WhatsAppMetaBaseURL, cfg.WhatsAppMetaToken, cfg.WhatsAppMetaPhoneNumber),
-		"telegram-bot":  NewTelegramBot(cfg.TelegramBaseURL, cfg.TelegramBotToken),
+		"sms-twilio":    sms,
+		"whatsapp-meta": whatsapp,
+		"telegram-bot":  telegram,
 	}
 }

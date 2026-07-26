@@ -5,46 +5,172 @@ package api
 // Ce handler recoit les "updates" Telegram envoyees par l'API Bot Telegram
 // lorsque l'URL de webhook est configuree via setWebhook.
 //
-// CORRELATION DLR (M-018, dette soldee par la migration additive
-// 0018_messaging_dlr_correlation) :
-//   messaging.messages porte desormais les colonnes provider_id/external_id/cost
-//   (voir messages_send.go/insertMessage). La correlation d'un DLR Telegram
-//   utilise donc en priorite external_id :
+// ═══════════════════════════════════════════════════════════════════════════
+// B1 (BLOQUANT, Phase 3, revue d'architecture) — UN SEUL ECRIVAIN DU STATUT
+// ═══════════════════════════════════════════════════════════════════════════
 //
-//   CONTRAT external_id (D-M13, partage avec providers/telegram.go) : external_id
-//   est TOUJOURS la representation decimale d'un entier — le message_id Telegram
-//   — cote provider (Send()) comme cote webhook (update.message.message_id) ; ne
+// AVANT ce correctif, ce handler ECRIVAIT directement messaging.messages.status
+// (UPDATE ... RETURNING id) PUIS publiait l'evenement AMQP consomme par
+// src/core-processor. Or core-processor applique lui-meme une garde de statut
+// ("WHERE status = 'sent'"/"WHERE status NOT IN ('delivered','failed','rejected')")
+// avant de rembourser le wallet en cas d'echec — garde qui suppose que le
+// statut est ENCORE dans son etat pre-DLR au moment ou core-processor la lit.
+// Puisque CE handler posait deja le statut TERMINAL avant de publier,
+// core-processor voyait TOUJOURS 0 ligne affectee (branche "deja traite"),
+// COMMIT sans remboursement, pour 100% des evenements nominaux. Les deux
+// seules responsabilites de core-processor (transition + remboursement)
+// etaient structurellement inatteignables. Invisible avec Telegram (gratuit,
+// cost=0 — rien a rembourser), CE BUG PERD SILENCIEUSEMENT TOUT REMBOURSEMENT
+// D'ECHEC des qu'un provider payant partage le meme patron de webhook.
+//
+// CORRECTIF : ce handler ne fait plus JAMAIS d'UPDATE sur messaging.messages —
+// UNIQUEMENT des SELECT (lecture seule) pour RESOUDRE l'UUID Fleece a publier
+// dans l'evenement AMQP. core-processor (src/core-processor/on_message_delivered.go/
+// on_message_failed.go) redevient l'UNIQUE ecrivain de messaging.messages.status,
+// et ses gardes de statut redeviennent effectives (elles n'ont pas ete
+// modifiees par ce correctif — seul CE fichier change).
+//
+// CONSEQUENCE ASSUMEE ET VOULUE : sans worker core-processor deployé et
+// consommant la queue, le statut n'est PLUS mis a jour par le webhook seul
+// (contrairement au comportement — bugue — d'avant ce correctif). C'est
+// voulu : les workers font partie integrante du deploiement cible (cf.
+// Phase 4/M-024 devops, topologie RabbitMQ). Un webhook qui ecrirait "pour de
+// vrai" sans le worker donnerait une illusion de fonctionnement correct qui
+// masquerait justement l'absence de remboursement — precisement le bug ici
+// corrige.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// B2 (BLOQUANT, Phase 3) — recipient N'EST PAS TOUJOURS le chat_id Telegram
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// L'ancien arbitrage D-M13 ("recipient == chat_id, donc le predicat
+// AND recipient = $N est une correlation dure valide") etait FAUX dans le cas
+// general. Deux chemins reels le violent :
+//
+//   - SelectProvider (routing.go) est AGNOSTIQUE DU FORMAT du destinataire —
+//     rien ne filtre les providers par compatibilite de format. Un
+//     POST /messages {"recipient":"+237690000000"} peut tres bien selectionner
+//     "telegram-bot" (ex. strategie highest_delivery) alors que le recipient
+//     est un numero E.164, PAS un chat_id Telegram. C'est le cas NORMAL des
+//     campagnes (src/intelligence-processor/on_campaign_run.go poste des
+//     numeros E.164 importes, pas des chat_id).
+//   - providers/telegram.go documente (avant ce correctif, a tort) que `to`
+//     "EST" le chat_id — alors que Telegram autorise aussi un `@username`
+//     comme destinataire, jamais egal a un chat_id entier.
+//
+// Un predicat DUR "AND recipient = $N" RETRECIT la correlation par rapport a
+// la Phase 2 (ou (external_id, provider_id) suffisait) : c'est une
+// REGRESSION FONCTIONNELLE, pas un durcissement neutre — un DLR Telegram
+// nominal, sur un message envoye a un numero E.164 via ce provider, ne
+// correlerait plus JAMAIS avec recipient=chat_id en dur.
+//
+// CORRECTIF : recipient/chat_id redevient un FILTRE OPPORTUNISTE, jamais une
+// condition dure :
+//  1. Tenter d'abord la correlation STRICTE (external_id, provider_id,
+//     recipient=chat_id) — reste le chemin ideal quand elle matche (anti-
+//     collision inter-chats, l'objectif initial de D-M13).
+//  2. Si 0 ligne, RETENTER (external_id, provider_id) SEUL (repli — c'etait le
+//     comportement de la Phase 2, avant D-M13).
+//  3. Si le repli aboutit LA OU la strategie stricte a echoue : c'est le
+//     signal d'une desynchronisation reelle entre le recipient stocke et le
+//     chat_id du callback — log ERROR distinctif ("dlr_recipient_mismatch"),
+//     PAS noye dans le bruit WARN habituel, avec les deux valeurs (chat_id
+//     attendu vs recipient effectivement trouve en base).
+//
+// DOCUMENTATION CORRIGEE (D-M13) : l'affirmation "recipient EST le chat_id"
+// (providers/telegram.go, ce fichier avant correctif) est FAUSSE en general —
+// ce n'est vrai QUE si le client HTTP a fourni un chat_id numerique en
+// `recipient` ET que le routage a effectivement choisi telegram-bot pour ce
+// message. Rien dans le code actuel ne garantit cette coincidence. La vraie
+// correction (capturer le chat_id renvoye par sendMessage dans ProviderResult
+// et le persister dans une colonne DEDIEE, distincte de recipient) est la
+// dette D-M27 (liee a D-M08, remplacement du stub Telegram) — HORS PERIMETRE
+// ici (aucune migration ajoutee par ce correctif).
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// CORRELATION DLR — MECANIQUE DETAILLEE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+//   messaging.messages porte les colonnes provider_id/external_id/cost
+//   (migration 0018, voir messages_send.go/insertMessage). La correlation d'un
+//   DLR Telegram utilise donc en priorite external_id :
+//
+//   CONTRAT external_id (partage avec providers/telegram.go) : external_id est
+//   TOUJOURS la representation decimale d'un entier — le message_id Telegram —
+//   cote provider (Send()) comme cote webhook (update.message.message_id) ; ne
 //   jamais y introduire de prefixe ou de format oppose sous peine de casser
-//   silencieusement toute correlation DLR (voir dette D-M13, .ia/MEMORY.md).
-//     UPDATE messaging.messages SET status=$1
-//      WHERE external_id=$2 AND provider_id='telegram-bot'
-//   ("telegram-bot" = cle canonique du registry, voir providers/registry.go).
-//   external_id est renseigne par providers.TelegramBot.Send() a partir du
-//   message_id retourne par l'API Telegram (voir providers/telegram.go) ; le
-//   webhook recoit ce meme message_id dans update.message.message_id, converti
-//   en string pour la comparaison.
+//   silencieusement toute correlation DLR.
+//
+//   Requete stricte (chat.id present dans l'update Telegram — toujours le cas
+//   pour un vrai Message, cf. https://core.telegram.org/bots/api#message) :
+//     SELECT id, recipient FROM messaging.messages
+//      WHERE external_id = $1 AND provider_id = $2 AND recipient = $3
+//   ("telegram-bot" = cle canonique du registry, voir providers/registry.go.)
+//
+//   Repli (0 ligne sur la requete stricte, OU chat.id absent/nul sur ce
+//   callback — improbable pour un vrai callback Telegram mais on ne doit ni
+//   planter ni elargir silencieusement la correlation sans log) :
+//     SELECT id, recipient FROM messaging.messages
+//      WHERE external_id = $1 AND provider_id = $2
+//   Si CE repli aboutit APRES l'echec d'une correlation stricte (chat.id
+//   present mais ne matchant aucune ligne) : log ERROR "dlr_recipient_mismatch"
+//   (voir B2 ci-dessus). Si le repli est tente parce que chat.id etait
+//   simplement absent/nul (jamais tente strictement) : log WARN habituel
+//   (risque de collision inter-chats, pas une desynchronisation constatee).
 //
 //   Chemin de compatibilite conserve : si le payload porte encore un champ non
 //   standard "fleece_message_id" (UUID) ET qu'aucun message_id Telegram
 //   exploitable n'est present, on retombe sur l'ancien mecanisme :
-//     UPDATE messaging.messages SET status=$1 WHERE id=$2
-//   Ce chemin est herite de l'epoque ou external_id n'existait pas encore ;
-//   il ne devrait plus etre exerce par de vrais callbacks Telegram (qui
-//   fournissent toujours un message_id), mais reste supporte pour ne pas casser
-//   d'eventuels producteurs de test/replay qui l'utiliseraient encore.
+//     SELECT id FROM messaging.messages WHERE id = $1
+//   Ce chemin est herite de l'epoque ou external_id n'existait pas encore ; il
+//   ne devrait plus etre exerce par de vrais callbacks Telegram (qui
+//   fournissent toujours un message_id), mais reste supporte pour ne pas
+//   casser d'eventuels producteurs de test/replay qui l'utiliseraient encore.
 //
-//   La strategie de correlation (quelle colonne utiliser, a partir de quelles
-//   valeurs) est decidee par la fonction pure resolveTelegramCorrelation,
-//   testable sans acces DB.
+//   La strategie de correlation (quelle colonne / quelles valeurs utiliser,
+//   AVANT tout acces DB) est decidee par la fonction pure
+//   resolveTelegramCorrelation, testable sans acces DB. La RESOLUTION EFFECTIVE
+//   (SELECT, repli, log de desynchronisation) est faite par
+//   resolveTelegramMessageID (et ses variantes par cas), qui EST couplee a s.DB.
 //
-//   L'index sur external_id (migration 0018) est non-UNIQUE et partiel : si
-//   plusieurs lignes matchent (collision improbable mais possible), l'UPDATE
-//   les affecte toutes sans erreur ; on logge un WARN pour observabilite mais
-//   on ne fait jamais echouer le webhook pour cette raison.
+//   Les index sur external_id / (provider_id, external_id) (migration 0018)
+//   sont non-UNIQUE et partiels : si plusieurs lignes matchent (collision
+//   improbable mais possible, surtout sur le chemin de repli sans chat_id),
+//   on utilise la premiere et on logge un WARN pour observabilite ; jamais
+//   d'echec du webhook pour cette raison.
+//
+// CONTRAT DE L'EVENEMENT AMQP "message.delivered" / "message.failed" (D-M21,
+// PRODUCTEUR — voir aussi src/core-processor/consumer.go pour le contrat cote
+// CONSOMMATEUR, qui doit rester rigoureusement identique) :
+//
+//   {
+//     "message_id":  "<uuid Fleece — messaging.messages.id>",
+//     "external_id": "<identifiant provider, ex. message_id Telegram>",
+//     "provider_id": "telegram-bot",
+//     "status":      "delivered|failed|...",
+//     "source":      "telegram"
+//   }
+//
+//   Regles strictes (D-M21) :
+//     - message_id est TOUJOURS l'UUID Fleece (messaging.messages.id), jamais
+//       l'identifiant provider (external_id) ni une valeur ambigue.
+//     - Si aucune ligne messaging.messages n'a pu etre correlee (SELECT sans
+//       resultat, ou erreur technique) : on NE PUBLIE PAS d'evenement. Un
+//       evenement non correlable ne peut etre traite par aucun consumer (il ne
+//       reference rien) et n'a aucune valeur d'audit ; il ne fait que polluer
+//       la queue. On se contente donc de logger un WARN/ERROR et de sortir.
 //
 // PUBLICATION AMQP :
-//   Si une correlation a pu etre etablie, on publie "message.delivered" ou
-//   "message.failed" selon le statut Telegram. Garde nil sur s.AMQP.
+//   Si (et seulement si) une correlation a pu etre etablie par SELECT (au
+//   moins une ligne trouvee), on publie "message.delivered" ou "message.failed"
+//   selon le statut Telegram — le statut CIBLE (fleeceStatus) est INCLUS dans
+//   l'evenement pour que core-processor sache quoi ecrire, mais ce handler ne
+//   l'ecrit JAMAIS lui-meme (B1). Garde nil sur s.AMQP.
+//
+//   OBSERVABILITE (B1, point 4) : si la publication AMQP echoue APRES une
+//   correlation reussie, le DLR est DEFINITIVEMENT PERDU (aucun retry, aucune
+//   trace autre que ce log) — logge en ERROR (pas WARN) avec un champ
+//   distinctif ("dlr_publish_lost").
 //
 // Telegram exige toujours 200 :
 //   Si Telegram recoit autre chose que 200, il reessaie l'update indefiniment
@@ -77,11 +203,30 @@ type telegramUpdate struct {
 	Message *telegramMessage `json:"message,omitempty"`
 }
 
+// telegramChat represente le champ standard Telegram "chat" d'un Message
+// (https://core.telegram.org/bots/api#message — toujours present sur un vrai
+// Message). Sous-ensemble minimal : seul l'identifiant est necessaire a la
+// correlation DLR.
+type telegramChat struct {
+	// ID est le chat_id Telegram de ce callback. NE PAS CONFONDRE avec
+	// messaging.messages.recipient (voir B2, doc de tete de fichier) : rien
+	// ne garantit qu'ils coincident en general — seulement si le routage a
+	// choisi telegram-bot ET que le client a fourni un chat_id numerique en
+	// recipient. Utilise en repli/filtre opportuniste, jamais en condition dure.
+	ID int64 `json:"id"`
+}
+
 // telegramMessage represente un message Telegram (sous-ensemble minimal).
 type telegramMessage struct {
-	// MessageID est l'identifiant Telegram du message (entier).
-	// DIFFERENT de messaging.messages.id (UUID Fleece).
+	// MessageID est l'identifiant Telegram du message (entier), unique PAR
+	// CHAT seulement — voir Chat ci-dessous pour la seconde moitie de la clef
+	// de correlation stricte. DIFFERENT de messaging.messages.id (UUID Fleece).
 	MessageID int64 `json:"message_id"`
+	// Chat est le chat d'origine du message. Toujours present sur un vrai
+	// callback Telegram (champ standard de l'API Bot) ; peut etre nil dans ce
+	// code si le producteur de l'update ne le fournit pas (payload de test/
+	// replay non standard) — voir resolveTelegramCorrelation.
+	Chat *telegramChat `json:"chat,omitempty"`
 	// Text est le contenu textuel du message (optionnel).
 	Text string `json:"text,omitempty"`
 	// FleeceMsgID est un champ NON STANDARD, herite de l'ancien workaround
@@ -103,10 +248,15 @@ type telegramMessage struct {
 // Pipeline :
 //  1. Lire le body complet.
 //  2. Parser la TelegramUpdate.
-//  3. Tenter la correlation avec messaging.messages (external_id en priorite,
-//     fleece_message_id en compatibilite — voir resolveTelegramCorrelation).
-//  4. Si correle et DLR reconnaissable : UPDATE messaging.messages.status.
-//  5. Publier evenement AMQP "message.delivered" ou "message.failed" si correle.
+//  3. Tenter la correlation avec messaging.messages (external_id+recipient en
+//     priorite, fleece_message_id en compatibilite — voir
+//     resolveTelegramCorrelation).
+//  4. Si correle et DLR reconnaissable : SELECT (LECTURE SEULE, B1) pour
+//     confirmer la correlation et recuperer l'UUID Fleece a publier — ce
+//     handler N'ECRIT JAMAIS messaging.messages.status (proprietaire exclusif :
+//     src/core-processor).
+//  5. Publier evenement AMQP "message.delivered" ou "message.failed"
+//     UNIQUEMENT si la correlation a ete confirmee par le SELECT (D-M21).
 //  6. Repondre 200 TOUJOURS (meme si non reconnu ou echec DB).
 func (s *Service) HandleWebhookTelegram(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -147,30 +297,51 @@ func (s *Service) HandleWebhookTelegram(w http.ResponseWriter, r *http.Request) 
 }
 
 // telegramCorrelation decrit la strategie de correlation choisie pour un DLR
-// Telegram donne. Column est le nom de la colonne messaging.messages a filtrer
-// ("external_id" ou "id"), vide si aucune correlation n'est possible.
+// Telegram donne. Column est le nom de la colonne pivot de messaging.messages
+// a filtrer ("external_id" ou "id"), vide si aucune correlation n'est possible.
 type telegramCorrelation struct {
 	Column string
 	Value  string
+	// ChatID est le chat_id Telegram du callback (candidat de filtre
+	// opportuniste — B2, jamais une condition dure), extrait de msg.Chat.ID si
+	// present et non nul. Uniquement pertinent quand Column == "external_id".
+	// Vide si absent/nul : resolveTelegramMessageID retombe alors directement
+	// sur (external_id, provider_id) seul, avec un log WARN explicite (risque
+	// de collision inter-chats).
+	ChatID string
 }
 
 // resolveTelegramCorrelation decide, a partir du seul contenu du message
-// Telegram (aucun acces DB), quelle colonne utiliser pour retrouver le message
-// Fleece correspondant :
+// Telegram (aucun acces DB), quelle colonne/valeurs utiliser pour retrouver
+// le message Fleece correspondant :
 //
 //   - message_id present (cas normal : l'API Telegram fournit toujours cet
 //     identifiant entier) → correlation par external_id (chemin principal,
-//     migration 0018). C'est la meme valeur que providers.TelegramBot.Send()
-//     a stockee dans messaging.messages.external_id lors de l'envoi.
+//     migration 0018), avec chat_id comme filtre opportuniste si disponible
+//     (B2 : PAS une condition dure — voir resolveTelegramMessageID pour le
+//     repli). C'est la meme valeur que providers.TelegramBot.Send() a stockee
+//     dans messaging.messages.external_id lors de l'envoi.
 //   - sinon, si fleece_message_id (UUID) est fourni et syntaxiquement valide
 //     → correlation par id (chemin de compatibilite herite de l'ancien
 //     workaround, conserve pour ne pas casser d'eventuels rejeux existants).
 //   - sinon → aucune correlation possible.
 //
-// Fonction pure, testable sans base de donnees.
+// Fonction pure, testable sans base de donnees. INCHANGEE par le correctif
+// B1/B2 (Phase 3) : c'est resolveTelegramMessageID, qui EST couplee a s.DB,
+// qui applique desormais la strategie strict-puis-repli (B2) et ne fait plus
+// jamais d'UPDATE (B1).
 func resolveTelegramCorrelation(msg *telegramMessage) telegramCorrelation {
+	var chatID string
+	if msg.Chat != nil && msg.Chat.ID != 0 {
+		chatID = strconv.FormatInt(msg.Chat.ID, 10)
+	}
+
 	if msg.MessageID != 0 {
-		return telegramCorrelation{Column: "external_id", Value: strconv.FormatInt(msg.MessageID, 10)}
+		return telegramCorrelation{
+			Column: "external_id",
+			Value:  strconv.FormatInt(msg.MessageID, 10),
+			ChatID: chatID,
+		}
 	}
 	if msg.FleeceMsgID != "" {
 		if _, err := parseUUID(msg.FleeceMsgID); err == nil {
@@ -178,6 +349,15 @@ func resolveTelegramCorrelation(msg *telegramMessage) telegramCorrelation {
 		}
 	}
 	return telegramCorrelation{}
+}
+
+// telegramCorrelatedRow scanne le resultat d'un SELECT de resolution de
+// correlation. Recipient n'est peuple (et pertinent) que sur les chemins
+// external_id (comparaison avec le chat_id attendu, B2) — laisse a la valeur
+// zero (non scannee) sur le chemin de compatibilite "id" (SELECT id seul).
+type telegramCorrelatedRow struct {
+	ID        string `db:"id"`
+	Recipient string `db:"recipient"`
 }
 
 // processTelegramDLR traite le volet DLR d'une update Telegram portant un message.
@@ -199,7 +379,8 @@ func (s *Service) processTelegramDLR(ctx context.Context, update telegramUpdate)
 
 	// Determiner le routing key AMQP selon le statut Telegram.
 	routingKey := mapTelegramStatusToRoutingKey(msg.DeliveryStatus)
-	// Statut Fleece correspondant.
+	// Statut Fleece cible — INCLUS dans l'evenement AMQP pour core-processor,
+	// mais JAMAIS ecrit ici (B1 : ce handler ne fait que lire).
 	fleeceStatus := mapTelegramStatusToFleeceStatus(msg.DeliveryStatus)
 
 	// 3. Decider la strategie de correlation (fonction pure, sans I/O).
@@ -213,61 +394,156 @@ func (s *Service) processTelegramDLR(ctx context.Context, update telegramUpdate)
 			"telegram_message_id", msg.MessageID,
 			"delivery_status", msg.DeliveryStatus,
 		)
-		// Publier l'evenement AMQP meme sans correlation (audit, futur consumer).
-		s.publishTelegramDLR(ctx, "", fleeceStatus, routingKey)
+		// D-M21 : aucune correlation -> aucune publication.
 		return
 	}
 
-	// 4. UPDATE messaging.messages SET status=$1 WHERE <colonne choisie>=$2
-	// (+ AND provider_id=$3 pour external_id, qui exploite l'index composite
-	// (provider_id, external_id) de la migration 0018 et evite les collisions
-	// entre providers).
-	// Invariant du service (D-M01/rule 6) : s.DB est toujours injecte en
-	// production (aucune garde nil ici, harmonise avec les autres handlers qui
-	// derefencent s.DB directement) ; les tests httptest evitent ce chemin en
-	// ne fournissant pas de message_id/fleece_message_id exploitable (voir
-	// webhooks_endpoints_test.go).
-	var (
-		rows int64
-		err  error
-	)
-	switch corr.Column {
-	case "external_id":
-		rows, err = s.DB.ExecRows(ctx,
-			`UPDATE messaging.messages SET status = $1 WHERE external_id = $2 AND provider_id = $3`,
-			fleeceStatus, corr.Value, telegramProviderID,
-		)
-	case "id":
-		rows, err = s.DB.ExecRows(ctx,
-			`UPDATE messaging.messages SET status = $1 WHERE id = $2`,
-			fleeceStatus, corr.Value,
-		)
+	// 4. SELECT (lecture seule, B1) pour confirmer la correlation et recuperer
+	// l'UUID Fleece a publier. AUCUN UPDATE messaging.messages ici — voir doc
+	// de tete de fichier (B1).
+	messageID := s.resolveTelegramMessageID(ctx, corr)
+	if messageID == "" {
+		// Deja logge (WARN/ERROR selon le cas) par resolveTelegramMessageID.
+		return
 	}
 
+	s.Logger.Info("webhooks/telegram: message correle (statut sera applique par core-processor)",
+		"correlation_column", corr.Column, "correlation_value", corr.Value,
+		"message_id", messageID, "status", fleeceStatus)
+
+	// external_id n'est pertinent a inclure dans l'evenement que sur le chemin
+	// principal (compat "id" : on ne connait pas l'external_id du message).
+	var externalID string
+	if corr.Column == "external_id" {
+		externalID = corr.Value
+	}
+
+	// 5. Publier evenement AMQP — message_id est TOUJOURS l'UUID Fleece
+	// confirme par le SELECT (D-M21). status est le statut CIBLE (fleeceStatus) :
+	// core-processor l'ecrit lui-meme, sous sa propre garde de transition.
+	s.publishTelegramDLR(ctx, messageID, externalID, telegramProviderID, fleeceStatus, routingKey)
+}
+
+// resolveTelegramMessageID resout l'UUID Fleece (messaging.messages.id) a
+// partir de la strategie de correlation decidee par resolveTelegramCorrelation.
+// LECTURE SEULE UNIQUEMENT (B1) : aucun UPDATE n'est jamais emis ici. Retourne
+// "" si aucune ligne n'a pu etre correlee (deja logge par la fonction).
+func (s *Service) resolveTelegramMessageID(ctx context.Context, corr telegramCorrelation) string {
 	switch {
-	case err != nil:
-		s.Logger.Warn("webhooks/telegram: UPDATE messaging.messages echoue",
+	case corr.Column == "external_id" && corr.ChatID != "":
+		return s.resolveTelegramMessageIDWithChatID(ctx, corr)
+	case corr.Column == "external_id":
+		return s.resolveTelegramMessageIDNoChatID(ctx, corr)
+	default: // corr.Column == "id" (chemin de compatibilite fleece_message_id)
+		return s.resolveTelegramMessageIDCompat(ctx, corr)
+	}
+}
+
+// resolveTelegramMessageIDWithChatID implemente la strategie B2 : correlation
+// STRICTE (external_id, provider_id, recipient=chat_id) en premier ; si 0
+// ligne, REPLI sur (external_id, provider_id) SEUL. Si le repli aboutit LA OU
+// la strategie stricte a echoue, c'est un signal de desynchronisation reelle
+// (recipient stocke != chat_id du callback) — log ERROR distinctif
+// "dlr_recipient_mismatch" (pas noye dans le bruit WARN habituel), avec les
+// deux valeurs.
+func (s *Service) resolveTelegramMessageIDWithChatID(ctx context.Context, corr telegramCorrelation) string {
+	const strictQuery = `SELECT id, recipient FROM messaging.messages
+	                       WHERE external_id = $1 AND provider_id = $2 AND recipient = $3`
+	var strictRows []telegramCorrelatedRow
+	if err := s.DB.Select(ctx, &strictRows, strictQuery, corr.Value, telegramProviderID, corr.ChatID); err != nil {
+		s.Logger.Warn("webhooks/telegram: lecture messaging.messages (correlation stricte) echouee",
 			"correlation_column", corr.Column, "correlation_value", corr.Value, "err", err)
-	case rows == 0:
-		// Index partiel non-unique : 0 ligne signifie simplement qu'aucun message
-		// ne correspond (callback en avance sur l'insertion, ou identifiant
-		// inconnu). On log et on continue — jamais d'erreur sur ce cas.
+		return ""
+	}
+	if len(strictRows) > 0 {
+		if len(strictRows) > 1 {
+			s.Logger.Warn("webhooks/telegram: plusieurs messages correles (correlation stricte, index non-unique)",
+				"correlation_value", corr.Value, "chat_id", corr.ChatID, "rows", len(strictRows))
+		}
+		return strictRows[0].ID
+	}
+
+	// B2 : repli (external_id, provider_id) seul — recipient n'est PAS
+	// toujours le chat_id (voir doc de tete de fichier).
+	const fallbackQuery = `SELECT id, recipient FROM messaging.messages
+	                         WHERE external_id = $1 AND provider_id = $2`
+	var fallbackRows []telegramCorrelatedRow
+	if err := s.DB.Select(ctx, &fallbackRows, fallbackQuery, corr.Value, telegramProviderID); err != nil {
+		s.Logger.Warn("webhooks/telegram: lecture messaging.messages (repli B2) echouee",
+			"correlation_column", corr.Column, "correlation_value", corr.Value, "err", err)
+		return ""
+	}
+	if len(fallbackRows) == 0 {
+		s.Logger.Warn("webhooks/telegram: aucun message correle (ni correlation stricte ni repli)",
+			"correlation_column", corr.Column, "correlation_value", corr.Value, "chat_id", corr.ChatID)
+		return ""
+	}
+	if len(fallbackRows) > 1 {
+		s.Logger.Warn("webhooks/telegram: plusieurs messages correles (repli B2, index non-unique)",
+			"correlation_value", corr.Value, "rows", len(fallbackRows))
+	}
+
+	// Le repli a reussi LA OU la correlation stricte (avec recipient=chat_id)
+	// a echoue : desynchronisation reelle entre le recipient stocke et le
+	// chat_id du callback — jamais du bruit, toujours actionnable. ERROR
+	// (pas WARN), champ distinctif "dlr_recipient_mismatch" (B2, point 3).
+	s.Logger.Error("webhooks/telegram: dlr_recipient_mismatch — repli (external_id, provider_id) reussi la ou la correlation stricte (recipient=chat_id) a echoue",
+		"dlr_recipient_mismatch", true,
+		"correlation_value", corr.Value,
+		"chat_id_attendu", corr.ChatID,
+		"recipient_en_base", fallbackRows[0].Recipient,
+		"message_id", fallbackRows[0].ID,
+	)
+	return fallbackRows[0].ID
+}
+
+// resolveTelegramMessageIDNoChatID gere le cas ou chat.id est absent/nul sur
+// ce callback (improbable pour un vrai callback Telegram) : correlation par
+// (external_id, provider_id) SEUL directement — aucune tentative stricte
+// n'est possible faute de chat_id, donc pas de log "mismatch" (ce n'est pas
+// une desynchronisation constatee, juste l'absence d'un filtre optionnel) —
+// seul le WARN "risque de collision inter-chats" deja documente s'applique.
+func (s *Service) resolveTelegramMessageIDNoChatID(ctx context.Context, corr telegramCorrelation) string {
+	s.Logger.Warn("webhooks/telegram: chat.id absent/nul — correlation (external_id, provider_id) seule, risque de collision inter-chats (D-M13)",
+		"telegram_message_id_correlation_value", corr.Value)
+
+	const query = `SELECT id, recipient FROM messaging.messages WHERE external_id = $1 AND provider_id = $2`
+	var rows []telegramCorrelatedRow
+	if err := s.DB.Select(ctx, &rows, query, corr.Value, telegramProviderID); err != nil {
+		s.Logger.Warn("webhooks/telegram: lecture messaging.messages echouee",
+			"correlation_column", corr.Column, "correlation_value", corr.Value, "err", err)
+		return ""
+	}
+	if len(rows) == 0 {
 		s.Logger.Warn("webhooks/telegram: aucun message correle",
 			"correlation_column", corr.Column, "correlation_value", corr.Value)
-	default:
-		if rows > 1 {
-			// Index non-unique : plusieurs messages ont matche la meme valeur.
-			// On les a tous mis a jour (comportement SQL naturel) — log pour
-			// observabilite uniquement, pas d'echec.
-			s.Logger.Warn("webhooks/telegram: plusieurs messages correles pour la meme valeur (index non-unique)",
-				"correlation_column", corr.Column, "correlation_value", corr.Value, "rows", rows)
-		}
-		s.Logger.Info("webhooks/telegram: statut mis a jour",
-			"correlation_column", corr.Column, "correlation_value", corr.Value, "status", fleeceStatus)
+		return ""
 	}
+	if len(rows) > 1 {
+		s.Logger.Warn("webhooks/telegram: plusieurs messages correles pour la meme valeur (index non-unique)",
+			"correlation_column", corr.Column, "correlation_value", corr.Value, "rows", len(rows))
+	}
+	return rows[0].ID
+}
 
-	// 5. Publier evenement AMQP.
-	s.publishTelegramDLR(ctx, corr.Value, fleeceStatus, routingKey)
+// resolveTelegramMessageIDCompat implemente le chemin de compatibilite
+// fleece_message_id (herite de l'ancien workaround pre-migration 0018) :
+// SELECT id FROM messaging.messages WHERE id = $1 — confirme simplement
+// l'existence de la ligne (id est la cle primaire, au plus 1 resultat).
+func (s *Service) resolveTelegramMessageIDCompat(ctx context.Context, corr telegramCorrelation) string {
+	const query = `SELECT id FROM messaging.messages WHERE id = $1`
+	var rows []telegramCorrelatedRow
+	if err := s.DB.Select(ctx, &rows, query, corr.Value); err != nil {
+		s.Logger.Warn("webhooks/telegram: lecture messaging.messages (compat fleece_message_id) echouee",
+			"correlation_column", corr.Column, "correlation_value", corr.Value, "err", err)
+		return ""
+	}
+	if len(rows) == 0 {
+		s.Logger.Warn("webhooks/telegram: aucun message correle (compat fleece_message_id)",
+			"correlation_column", corr.Column, "correlation_value", corr.Value)
+		return ""
+	}
+	return rows[0].ID
 }
 
 // mapTelegramStatusToRoutingKey convertit un statut Telegram DLR en routing key AMQP.
@@ -294,21 +570,31 @@ func mapTelegramStatusToFleeceStatus(deliveryStatus string) string {
 }
 
 // publishTelegramDLR publie un evenement AMQP de livraison/echec Telegram.
-// messageID peut etre vide si la correlation n'a pas pu etre etablie.
-// Garde nil sur s.AMQP (meme pattern que publishMessageSent).
-func (s *Service) publishTelegramDLR(ctx context.Context, messageID, status, routingKey string) {
+//
+// CONTRAT D-M21 (voir commentaire de tete de fichier) : messageID DOIT
+// toujours etre non-vide et etre l'UUID Fleece (messaging.messages.id) —
+// l'appelant (processTelegramDLR) ne l'invoque que lorsque le SELECT a
+// confirme au moins une ligne (B1 : jamais un UPDATE...RETURNING desormais).
+// externalID/providerID sont des champs d'enrichissement (evitent un aller-
+// retour DB au worker src/core-processor) mais ne remplacent jamais message_id
+// comme clef. Garde nil sur s.AMQP (meme pattern que publishMessageSent).
+func (s *Service) publishTelegramDLR(ctx context.Context, messageID, externalID, providerID, status, routingKey string) {
 	if s.AMQP == nil {
 		return
 	}
 
 	event := struct {
-		MessageID string `json:"message_id"`
-		Status    string `json:"status"`
-		Source    string `json:"source"`
+		MessageID  string `json:"message_id"`
+		ExternalID string `json:"external_id,omitempty"`
+		ProviderID string `json:"provider_id,omitempty"`
+		Status     string `json:"status"`
+		Source     string `json:"source"`
 	}{
-		MessageID: messageID,
-		Status:    status,
-		Source:    "telegram",
+		MessageID:  messageID,
+		ExternalID: externalID,
+		ProviderID: providerID,
+		Status:     status,
+		Source:     "telegram",
 	}
 
 	body, err := json.Marshal(event)
@@ -317,7 +603,12 @@ func (s *Service) publishTelegramDLR(ctx context.Context, messageID, status, rou
 		return
 	}
 
+	// B1, point 4 : si la publication echoue APRES une correlation reussie, le
+	// DLR est DEFINITIVEMENT PERDU (aucun retry possible depuis ce handler,
+	// aucune autre trace) — ERROR (pas WARN), champ distinctif "dlr_publish_lost".
 	if err := s.AMQP.Publish(ctx, "fleece", routingKey, body); err != nil {
-		s.Logger.Warn("webhooks/telegram: amqp publish", "routing_key", routingKey, "err", err)
+		s.Logger.Error("webhooks/telegram: publication AMQP echouee — DLR definitivement perdu",
+			"dlr_publish_lost", true,
+			"routing_key", routingKey, "message_id", messageID, "err", err)
 	}
 }

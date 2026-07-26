@@ -6,11 +6,11 @@ package providers
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
 	"fleece/src/api"
+	golog "fleece/src/go/log"
 )
 
 // Assertion de conformite au port : ne compile pas si SMSTwilio n'implemente pas api.Provider.
@@ -41,6 +41,12 @@ type SMSTwilio struct {
 	// from est le numero emetteur Twilio (+E.164).
 	// TODO(production): lire depuis la config (env TWILIO_FROM_NUMBER).
 	from string
+
+	// Logger est le logger structure partage (D-M17, Phase 3), optionnel :
+	// nil ⇒ aucun log emis (garde nil, meme pattern que s.AMQP == nil
+	// ailleurs dans le depot). Cable par providers.BuildRegistry depuis le
+	// composition root (src/api/cmd/api/main.go). Jamais log.Printf stdlib.
+	Logger *golog.Logger
 }
 
 // NewSMSTwilio cree un adapter SMS Twilio avec les parametres fournis.
@@ -79,7 +85,7 @@ func (p *SMSTwilio) Send(_ context.Context, to, body string) (api.ProviderResult
 	// TODO(production): executer la vraie requete HTTP vers l'API Twilio.
 	// Stub : genere un externalId de format SID Twilio non vide.
 	externalID := fmt.Sprintf("SM%d", time.Now().UnixNano())
-	log.Printf("[sms_twilio:stub] Send to=%s externalId=%s", to, externalID)
+	logInfo(p.Logger, "sms_twilio: stub send", "to", to, "external_id", externalID)
 
 	return api.ProviderResult{
 		ExternalID: externalID,
@@ -118,6 +124,6 @@ func (p *SMSTwilio) GetDeliveryStatus(_ context.Context, externalID string) (str
 		return "", fmt.Errorf("sms_twilio: externalId vide: %w", errProviderUnavailable)
 	}
 	// TODO(production): requete GET vers l'API Twilio pour obtenir le vrai statut.
-	log.Printf("[sms_twilio:stub] GetDeliveryStatus externalId=%s → sent", externalID)
+	logInfo(p.Logger, "sms_twilio: stub get_delivery_status", "external_id", externalID, "status", "sent")
 	return "sent", nil
 }

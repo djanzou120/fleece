@@ -40,6 +40,13 @@ import (
 // requêtes en cours lors d'un arrêt gracieux (SIGINT/SIGTERM).
 const shutdownTimeout = 10 * time.Second
 
+// fleeceExchange est le nom canonique de l'exchange AMQP topic durable
+// partagé par TOUS les composition roots Go (src/api, core-processor,
+// intelligence-processor, D-M29) — déclaré à l'identique (mêmes flags,
+// durable=true) par chacun pour éviter tout PRECONDITION_FAILED côté broker
+// en cas de divergence de paramètres entre binaires.
+const fleeceExchange = "fleece"
+
 func main() {
 	// Contexte racine : annulé sur SIGINT/SIGTERM.
 	ctx, cancel := goapp.Context()
@@ -79,6 +86,22 @@ func main() {
 	}
 	defer amqpConn.Close()
 
+	// D-M29 (Phase 3) : declaration idempotente de l'exchange AMQP "fleece"
+	// (topic, durable) — src/api est un PRODUCTEUR pur (messages_send.go,
+	// webhooks_telegram.go publient dessus) mais ne consomme jamais de queue.
+	// AVANT ce correctif, aucun ExchangeDeclare n'existait nulle part dans le
+	// depot : si src/api demarrait avant tout worker (core-processor/
+	// intelligence-processor, qui declarent aussi cet exchange, voir
+	// goamqp/topology.go), il publiait dans un exchange inexistant — perte
+	// silencieuse de tout evenement (voir aussi la fiabilisation de
+	// goamqp.Conn.Publish, meme correctif D-M29). Memes parametres EXACTS
+	// (topic, durable=true) que core-processor/intelligence-processor : toute
+	// divergence provoquerait un PRECONDITION_FAILED cote broker.
+	if err := amqpConn.DeclareExchange(fleeceExchange, "topic"); err != nil {
+		logger.Error("api: declaration exchange AMQP echouee", "exchange", fleeceExchange, "err", err)
+		return
+	}
+
 	// Providers : construction du registry depuis les variables d'environnement.
 	// Les valeurs vides sont acceptées (stub — aucun appel réel en dev).
 	// TODO(production): valider que les credentials sont présents au démarrage.
@@ -92,6 +115,9 @@ func main() {
 		WhatsAppMetaPhoneNumber: os.Getenv("WHATSAPP_META_PHONE_NUMBER_ID"),
 		TelegramBaseURL:         os.Getenv("TELEGRAM_BASE_URL"),
 		TelegramBotToken:        os.Getenv("TELEGRAM_BOT_TOKEN"),
+		// D-M17 (Phase 3) : remplace les anciens log.Printf stdlib des adapters
+		// providers par le logger structure partage.
+		Logger: logger,
 	}
 
 	// Secrets HMAC des webhooks paiement (écart B2 — plus de constante codée en dur).
