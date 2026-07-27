@@ -1,31 +1,92 @@
-// Couche 3 — Client REST driven : implémentation de WebhookClient, censée pointer vers le
-// service HTTP unifié `src/api` (Go) depuis M-025.
+// Couche 3 — Client REST driven : implémentation de WebhookClient vers le service HTTP
+// unifié `src/api` (Go — routes /webhook-endpoints/*, cf. src/api/service.go registerRoutes).
 // Utilise fetch global (Node 18+) — pas de package npm.
 // Convention stubs : retour valeurs vides / [] — voir identity.client.ts pour détails.
 //
-// ⚠️ ÉCART RÉEL NON COMBLÉ (M-025) — À TRANCHER PAR LE PM :
-// Ce client gère les endpoints webhook SORTANTS configurés par le dashboard (CRUD
-// "webhook-endpoints" : url + events abonnés côté workspace, cf. WebhookClient /
-// ManageWebhook / manage-webhook.ts). C'est un concept DIFFÉRENT des webhooks ENTRANTS
-// (callbacks providers OM/MTN/Telegram) migrés dans src/api sous /webhooks/om|mtn|telegram
-// (src/api/webhooks_om.go, webhooks_mtn.go, webhooks_telegram.go).
-// Confronté à `src/api/service.go` (registerRoutes) : AUCUNE route `/webhook-endpoints*`
-// n'existe dans le service unifié. Le schéma DB `webhook.webhook_endpoints` existe pourtant
-// toujours (migrations/0006_webhook.sql, 0010_webhook_schema.sql) mais src/api n'expose
-// aucun endpoint HTTP dessus — la fonctionnalité CRUD de gestion des webhooks sortants n'a
-// PAS été portée depuis l'ancien `src/webhook` (qui l'implémentait via
-// internal/application/usecases/register_endpoint.go). Les chemins ci-dessous
-// (`/webhook-endpoints`, `/webhook-endpoints/{id}`) sont donc CONSERVÉS TELS QUELS
-// (aucune route de remplacement n'existe à documenter) mais répondront 404 en production
-// tant que ce gap n'est pas comblé côté `src/api`. Ne pas deviner de nouveau chemin :
-// signalé au PM comme dette de migration, ne concerne pas ce ticket (M-025 = re-pointage
-// des URLs, pas ajout de fonctionnalité Go).
+// Dette D-M40 SOLDÉE (routes portées côté src/api) : ce client gère les endpoints webhook
+// SORTANTS configurés par le dashboard (CRUD "webhook-endpoints" : url + events abonnés côté
+// workspace, cf. WebhookClient / ManageWebhook / manage-webhook.ts). C'est un concept
+// DIFFÉRENT des webhooks ENTRANTS (callbacks providers OM/MTN/Telegram) exposés par src/api
+// sous /webhooks/om|mtn|telegram (src/api/webhooks_om.go, webhooks_mtn.go,
+// webhooks_telegram.go).
+//
+// Contrat backend (src/api/webhook_endpoints_create.go, _list.go, _delete.go — vérifié) :
+//   - POST /webhook-endpoints
+//     Corps JSON : { workspace_id: uuid, url: string, secret?: string, events: string[] }.
+//     `secret` est optionnel — généré côté Go (crypto/rand, 32 octets hex) si absent.
+//     400 si workspace_id manquant/invalide, url vide, ou events vide.
+//     201 + { id, workspace_id, url, secret, events, active, created_at } — le SECRET EN
+//     CLAIR n'est présent QUE dans cette réponse (jamais renvoyé ensuite, même pattern que
+//     les clés API : voir createApiKey / rotateApiKey côté IdentityClient).
+//   - GET /webhook-endpoints?workspace_id=<uuid>
+//     workspace_id est un paramètre requis (400 si absent/invalide). Filtre les endpoints
+//     actifs uniquement (active = true). 200 + tableau JSON brut (jamais null côté Go).
+//     Cette réponse NE CONTIENT JAMAIS le champ `secret` — absent de la ligne SQL sélectionnée
+//     (webhookEndpointListRow côté Go n'a pas de colonne Secret).
+//   - DELETE /webhook-endpoints/{id}?workspace_id=<uuid>
+//     Suppression LOGIQUE (UPDATE active = false), pas physique (FK depuis
+//     webhook.webhook_deliveries). Scopée par workspace_id. 204 si désactivé, 404 si
+//     id inconnu / déjà inactif / n'appartenant pas à ce workspace (même réponse dans les
+//     trois cas, pour ne pas fuiter l'existence d'un endpoint d'un autre workspace).
+//
+// Nommage des paramètres (snake_case, cohérent avec messages_list.go / campaigns_list.go) :
+// le paramètre de scoping est `workspace_id`, aussi bien en query string (list/delete) qu'en
+// corps JSON (create) — jamais `workspaceId`. Le champ `secret` de WebhookEndpointDTO est
+// donc optionnel/absent en pratique pour tout ce qui provient de listEndpoints (voir
+// mapRawListItem ci-dessous, qui ne le peuple jamais) et n'est renseigné que par
+// createEndpoint (mapRawCreated).
 
 import type { ApiContext } from "@fleece/api-common";
 import type {
   WebhookClient,
   WebhookEndpointDTO,
 } from "../../application/ports/output/clients.js";
+
+// ---------------------------------------------------------------------------
+// Types internes : réponses brutes du service Go unifié (snake_case)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ligne brute retournée par GET /webhook-endpoints (webhookEndpointListRow côté Go) —
+ * volontairement SANS champ `secret` (jamais renvoyé en dehors de la création).
+ */
+interface RawWebhookEndpointListItem {
+  id: string;
+  workspace_id: string;
+  url: string;
+  events: string[];
+  active: boolean;
+  created_at: string; // RFC3339
+}
+
+/**
+ * Réponse brute de POST /webhook-endpoints (createWebhookEndpointResponse côté Go) —
+ * contient le secret en clair, uniquement à cet instant.
+ */
+interface RawWebhookEndpointCreated extends RawWebhookEndpointListItem {
+  secret: string;
+}
+
+/** Mappe une ligne de liste brute (snake_case Go, sans secret) vers le DTO TypeScript. */
+function mapRawListItem(raw: RawWebhookEndpointListItem): WebhookEndpointDTO {
+  return {
+    id: raw.id,
+    workspaceId: raw.workspace_id,
+    url: raw.url,
+    events: raw.events,
+    active: raw.active,
+    createdAt: raw.created_at,
+    // Pas de `secret` ici : la réponse de liste ne le contient jamais côté Go.
+  };
+}
+
+/** Mappe la réponse de création brute (snake_case Go, avec secret) vers le DTO TypeScript. */
+function mapRawCreated(raw: RawWebhookEndpointCreated): WebhookEndpointDTO {
+  return {
+    ...mapRawListItem(raw),
+    secret: raw.secret,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helper interne
@@ -71,14 +132,14 @@ export class WebhookRestClient implements WebhookClient {
   constructor(private readonly baseUrl: string) {}
 
   async listEndpoints(ctx: ApiContext, workspaceId: string): Promise<WebhookEndpointDTO[]> {
-    // TODO(production): GET {baseUrl}/webhook-endpoints?workspaceId=...
-    const result = await request<WebhookEndpointDTO[]>(
+    // GET {baseUrl}/webhook-endpoints?workspace_id=...
+    const result = await request<RawWebhookEndpointListItem[]>(
       this.baseUrl,
       "GET",
-      `/webhook-endpoints?workspaceId=${encodeURIComponent(workspaceId)}`,
+      `/webhook-endpoints?workspace_id=${encodeURIComponent(workspaceId)}`,
       ctx,
     );
-    return result ?? [];
+    return result !== null ? result.map(mapRawListItem) : [];
   }
 
   async createEndpoint(
@@ -86,16 +147,21 @@ export class WebhookRestClient implements WebhookClient {
     workspaceId: string,
     payload: { url: string; events: string[] },
   ): Promise<WebhookEndpointDTO> {
-    // TODO(production): POST {baseUrl}/webhook-endpoints { workspaceId, url, events }
-    const result = await request<WebhookEndpointDTO>(
+    // POST {baseUrl}/webhook-endpoints { workspace_id, url, events }
+    // `secret` n'est jamais envoyé par le BFF : le backend en génère un si absent.
+    const result = await request<RawWebhookEndpointCreated>(
       this.baseUrl,
       "POST",
       "/webhook-endpoints",
       ctx,
-      { workspaceId, ...payload },
+      { workspace_id: workspaceId, ...payload },
     );
-    // Stub offline : retourne un endpoint fictif pour permettre le développement du frontend
-    return result ?? {
+    if (result !== null) {
+      return mapRawCreated(result);
+    }
+    // Stub offline : retourne un endpoint fictif pour permettre le développement du frontend.
+    // Pas de secret fictif ici (aucun secret n'a réellement été généré).
+    return {
       id: "stub-endpoint-id",
       workspaceId,
       url: payload.url,
@@ -106,11 +172,11 @@ export class WebhookRestClient implements WebhookClient {
   }
 
   async deleteEndpoint(ctx: ApiContext, workspaceId: string, id: string): Promise<void> {
-    // TODO(production): DELETE {baseUrl}/webhook-endpoints/{id}?workspaceId=...
+    // DELETE {baseUrl}/webhook-endpoints/{id}?workspace_id=...
     await request<void>(
       this.baseUrl,
       "DELETE",
-      `/webhook-endpoints/${id}?workspaceId=${encodeURIComponent(workspaceId)}`,
+      `/webhook-endpoints/${id}?workspace_id=${encodeURIComponent(workspaceId)}`,
       ctx,
     );
   }

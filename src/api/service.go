@@ -105,6 +105,14 @@ func (s *Service) registerRoutes() {
 	s.mux.HandleFunc("POST /webhooks/om", s.HandleWebhookOM)
 	s.mux.HandleFunc("POST /webhooks/mtn", s.HandleWebhookMTN)
 	s.mux.HandleFunc("POST /webhooks/telegram", s.HandleWebhookTelegram)
+
+	// Routes webhook-endpoints (D-M40 — CRUD des webhooks SORTANTS, T-005 porté
+	// tardivement) — handlers definis dans webhook_endpoints_create.go,
+	// webhook_endpoints_list.go, webhook_endpoints_delete.go. Distinct de
+	// /webhooks/* ci-dessus (callbacks ENTRANTS des providers de paiement/messagerie).
+	s.mux.HandleFunc("POST /webhook-endpoints", s.HandleCreateWebhookEndpoint)
+	s.mux.HandleFunc("GET /webhook-endpoints", s.HandleListWebhookEndpoints)
+	s.mux.HandleFunc("DELETE /webhook-endpoints/{id}", s.HandleDeleteWebhookEndpoint)
 }
 
 // ServeHTTP implémente http.Handler en déléguant au mux interne, enveloppé par
