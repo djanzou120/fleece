@@ -1,11 +1,21 @@
-// Couche 3 — Client REST driven : implémentation de WalletClient vers le Wallet Service (Go).
+// Couche 3 — Client REST driven : implémentation de WalletClient vers le service HTTP
+// unifié `src/api` (Go — routes /wallet/*, cf. src/api/service.go registerRoutes / M-025).
 // Utilise fetch global (Node 18+) — pas de package npm.
 // Convention stubs : retour valeurs vides / défaut — voir identity.client.ts pour détails.
 //
-// Mapping transactions :
-//   Backend Go → `GET /wallets/{workspaceId}/transactions` → tableau JSON brut.
+// Mapping balance (M-025) :
+//   Backend Go → `GET /wallet/{workspaceId}` (src/api/wallet_get.go) → objet JSON unique.
+//   Champs backend (snake_case) : { workspace_id, balance:number (bigint centimes),
+//                      balance_cents:number (alias == balance), currency, updated_at:RFC3339 }
+//   Le chemin est bien `/wallet/...` (singulier) et NON `/wallets/...` — écart corrigé M-025
+//   (l'ancien Wallet Service Go exposait `/wallets/...` sur son propre port ; src/api agrège
+//   sous `/wallet/...`, cf. service.go `GET /wallet/{workspaceId}`).
+//
+// Mapping transactions (inchangé dans sa forme, chemin corrigé M-025) :
+//   Backend Go → `GET /wallet/{workspaceId}/transactions` (src/api/wallet_transactions.go)
+//   → tableau JSON brut.
 //   Champs backend : { id:number, workspace_id, kind:"debit"|"credit"|"refund",
-//                      amount:number (centimes), message_id?:string, created_at:RFC3339 }
+//                      amount:number (centimes), message_id:string|null, created_at:RFC3339 }
 //   La devise n'est PAS dans la réponse transaction — récupérée via getBalance.
 //   La pagination cursor-based est appliquée côté BFF sur la liste complète.
 
@@ -20,19 +30,37 @@ import type {
 // Type interne : réponse brute du Wallet Service (Go)
 // ---------------------------------------------------------------------------
 
-/** Format brut retourné par GET /wallets/{workspaceId}/transactions (snake_case Go). */
+/** Format brut retourné par GET /wallet/{workspaceId} (snake_case Go, src/api/wallet_get.go). */
+interface RawWalletBalance {
+  workspace_id: string;
+  balance: number;        // bigint centimes, colonne réelle "balance"
+  balance_cents: number;  // alias == balance (voir wallet_get.go)
+  currency: string;
+  updated_at: string;     // RFC3339 — non repris dans WalletBalanceDTO (pas dans le port)
+}
+
+/** Format brut retourné par GET /wallet/{workspaceId}/transactions (snake_case Go). */
 interface RawTransaction {
   id: number;
   workspace_id: string;
   kind: "debit" | "credit" | "refund";
-  amount: number;        // centimes
-  message_id?: string;   // présent si la transaction est liée à un message
-  created_at: string;    // RFC3339
+  amount: number;              // centimes
+  message_id: string | null;   // nullable côté Go (uuid nullable) — jamais absent, peut être null
+  created_at: string;          // RFC3339
 }
 
 // ---------------------------------------------------------------------------
 // Helpers de mapping et de pagination (BFF-side)
 // ---------------------------------------------------------------------------
+
+/** Mappe une balance brute (snake_case Go) vers le DTO TypeScript. */
+function mapRawBalance(raw: RawWalletBalance): WalletBalanceDTO {
+  return {
+    workspaceId: raw.workspace_id,
+    balance: raw.balance,
+    currency: raw.currency,
+  };
+}
 
 /**
  * Mappe une transaction brute (snake_case Go) vers le DTO TypeScript.
@@ -135,15 +163,16 @@ export class WalletRestClient implements WalletClient {
   constructor(private readonly baseUrl: string) {}
 
   async getBalance(ctx: ApiContext, workspaceId: string): Promise<WalletBalanceDTO> {
-    // TODO(production): GET {baseUrl}/wallets/{workspaceId}/balance
-    const result = await request<WalletBalanceDTO>(
+    // TODO(production): GET {baseUrl}/wallet/{workspaceId} (src/api/wallet_get.go, M-025 :
+    // route agrégée sous /wallet/... singulier, pas /wallets/.../balance)
+    const result = await request<RawWalletBalance>(
       this.baseUrl,
       "GET",
-      `/wallets/${workspaceId}/balance`,
+      `/wallet/${workspaceId}`,
       ctx,
     );
     // Valeur par défaut si le service est indisponible (stub offline)
-    return result ?? { workspaceId, balance: 0, currency: "XOF" };
+    return result !== null ? mapRawBalance(result) : { workspaceId, balance: 0, currency: "XOF" };
   }
 
   async listTransactions(
@@ -151,12 +180,13 @@ export class WalletRestClient implements WalletClient {
     workspaceId: string,
     page: PageArgs,
   ): Promise<Page<TransactionDTO>> {
-    // TODO(production): GET {baseUrl}/wallets/{workspaceId}/transactions
+    // TODO(production): GET {baseUrl}/wallet/{workspaceId}/transactions (M-025 : route
+    //   agrégée sous /wallet/... singulier)
     //   → tableau JSON brut RawTransaction[] (path param, pas de query params vers le backend)
     //
     // Production flow (à activer) :
     // const rawResult = await request<RawTransaction[]>(
-    //   this.baseUrl, "GET", `/wallets/${workspaceId}/transactions`, ctx
+    //   this.baseUrl, "GET", `/wallet/${workspaceId}/transactions`, ctx
     // );
     // if (rawResult !== null) {
     //   const balance = await this.getBalance(ctx, workspaceId);   // → currency
@@ -167,7 +197,7 @@ export class WalletRestClient implements WalletClient {
     const rawResult = await request<RawTransaction[]>(
       this.baseUrl,
       "GET",
-      `/wallets/${workspaceId}/transactions`,
+      `/wallet/${workspaceId}/transactions`,
       ctx,
     );
 
@@ -185,5 +215,5 @@ export class WalletRestClient implements WalletClient {
 }
 
 // Assertion de conformité au port — erreur de compilation si l'interface diverge.
-const _conformance: WalletClient = new WalletRestClient("http://localhost:3002");
+const _conformance: WalletClient = new WalletRestClient("http://localhost:8080");
 void _conformance;

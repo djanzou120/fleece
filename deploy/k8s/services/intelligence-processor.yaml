@@ -1,0 +1,133 @@
+# intelligence-processor — Go worker: 3 AMQP consumers (message.sent/
+# delivered/failed → contact_intel + analytics + campaign counters in one tx)
+# PLUS 2 in-process tickers (campaign_scheduler, analytics_refresh). NO HTTP
+# port is exposed by this binary — see
+# src/intelligence-processor/cmd/intelligence-processor/main.go. Built from
+# docker/go.dockerfile ARG PKG=intelligence-processor (binary from
+# ./src/intelligence-processor/cmd/intelligence-processor, D-M09).
+#
+# No Service, no HPA, replicas FIXED AT 1 — this is the one deliberate
+# departure from "scale workers on queue depth" in this deployment, and it is
+# NOT symmetrical with core-processor.yaml. Two independent reasons, both
+# tied to the two tickers bundled in this same binary (see
+# src/intelligence-processor/campaign_scheduler.go,
+# src/intelligence-processor/analytics_refresh.go):
+#
+#   1. analytics_refresh.go runs `REFRESH MATERIALIZED VIEW
+#      analytics.kpi_daily [CONCURRENTLY]` on its own ticker (default 5m,
+#      ANALYTICS_REFRESH_INTERVAL below). This statement is NOT idempotent
+#      under concurrent execution: with N replicas, N tickers fire
+#      (roughly) simultaneously and issue N concurrent REFRESHes against the
+#      same materialized view — wasted work at best, lock contention /
+#      wasted Postgres work at worst. There is no per-replica leader
+#      election or advisory lock guarding this ticker today.
+#   2. campaign_scheduler.go IS protected against double-run by an atomic
+#      `UPDATE ... RETURNING` (safe under N replicas on its own), but the
+#      three AMQP consumers in this same process are not fully idempotent
+#      at the aggregate level: per .ia/MIGRATION_PLAN.md D-M25, the
+#      idempotency guard used here is scoped to
+#      `campaign_recipients.status` (this worker's own table), NOT to
+#      `messaging.messages.status` (owned exclusively by core-processor,
+#      D-M26) — so a redelivered/duplicated event can double-count
+#      analytics.message_daily aggregates and contact_intel scores. That
+#      risk is already present at replicas=1 (documented, accepted) but
+#      would scale with the number of replicas if this worker ran with
+#      competing consumers, because AMQP redelivery races become more
+#      likely with more concurrent consumers pulling from the same queue.
+#
+# Net effect: unlike core-processor, this binary does NOT decompose cleanly
+# into "safely scalable at N replicas" — the ticker side caps it at 1 today.
+# Recommendation (not implemented here — would require a Go code change,
+# out of DevOps scope, flagged for Phase 4/V2): split this binary into (a) a
+# horizontally-scalable pure-consumer process (the 3 on_message_* handlers,
+# same competing-consumer safety argument as core-processor) and (b) a
+# singleton scheduler process (or a Kubernetes CronJob) for
+# campaign_scheduler + analytics_refresh. Until that split exists, replicas
+# must stay at 1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intelligence-processor
+  namespace: fleece
+  labels:
+    app: intelligence-processor
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: with replicas=1 a rolling update would
+    # briefly run 2 pods (old + new) in parallel during the transition,
+    # reintroducing exactly the N>1 ticker/idempotency risk documented above
+    # for the duration of the rollout. Recreate guarantees at most 1 pod at
+    # any time, at the cost of a short consumer/scheduler downtime window on
+    # every deploy (acceptable for a worker with AMQP redelivery and a
+    # tick-based scheduler that simply catches up on its next tick).
+    type: Recreate
+  selector:
+    matchLabels:
+      app: intelligence-processor
+  template:
+    metadata:
+      labels:
+        app: intelligence-processor
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres 5432; do
+                echo "waiting for postgres..."; sleep 3
+              done
+        - name: wait-for-rabbitmq
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z rabbitmq 5672; do
+                echo "waiting for rabbitmq..."; sleep 3
+              done
+      containers:
+        - name: intelligence-processor
+          image: fleece/intelligence-processor:latest
+          imagePullPolicy: IfNotPresent
+          # No ports: block declares.
+          env:
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: fleece-secret
+                  key: POSTGRES_DSN
+          # AMQP_DSN, INTELLIGENCE_PROCESSOR_QUEUE, API_URL,
+          # CAMPAIGN_SCHEDULER_INTERVAL, ANALYTICS_REFRESH_INTERVAL come from
+          # the ConfigMap (non-sensitive; API_URL is the same value graphql-
+          # api/rest-api use, M-025 — this worker's on_campaign_run.go POSTs
+          # to src/api over the very same in-cluster URL).
+          envFrom:
+            - configMapRef:
+                name: fleece-config
+            - secretRef:
+                name: fleece-secret
+                optional: true
+          # No readinessProbe / livenessProbe — same rationale as
+          # core-processor.yaml (no HTTP/TCP port; E9 correctif makes
+          # process-exit-on-fatal-error a meaningful signal for the default
+          # Kubernetes restart-on-exit behaviour). Additionally for this
+          # binary specifically: main.go's E9 fix explicitly cancels the root
+          # context (and therefore stops BOTH tickers) as soon as Consume()
+          # fails, precisely so the whole process exits instead of staying a
+          # "zombie" that Kubernetes would otherwise never restart — a
+          # Kubernetes-level probe would only rediscover what the binary
+          # itself already guarantees via its own exit code.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

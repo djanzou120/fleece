@@ -13,14 +13,13 @@ export interface Config {
   /** URL du service auth-api (Identity Service — TypeScript). */
   authApiUrl: string;
 
-  /** URL du Wallet Service (Go). */
-  walletApiUrl: string;
-
-  /** URL du Messaging Service (Go). */
-  messagingApiUrl: string;
-
-  /** URL du Webhook Service (Go). */
-  webhookApiUrl: string;
+  /**
+   * URL du service HTTP Go unifié `src/api` (ex-messaging/routing/provider/wallet/
+   * webhook/contact-intelligence/campaign/analytics — un seul binaire, un seul port
+   * depuis la migration `src/api`, cf. `.ia/MIGRATION_PLAN.md` M-025). Toutes les
+   * requêtes REST internes (wallet, messages, webhooks, …) partent de cette base.
+   */
+  apiUrl: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,12 +34,10 @@ export function loadConfig(): Config {
   return {
     port: parseInt(process.env["PORT"] ?? "4000", 10),
 
-    // auth-api écoute sur 3001 (voir auth-api/index.ts)
+    // auth-api écoute sur 3001 (voir auth-api/index.ts) — service TS distinct, inchangé.
     authApiUrl: process.env["AUTH_API_URL"] ?? "http://localhost:3001",
 
-    // Services Go — ports conventionnels du docker-compose local
-    walletApiUrl: process.env["WALLET_API_URL"] ?? "http://localhost:3002",
-    messagingApiUrl: process.env["MESSAGING_API_URL"] ?? "http://localhost:3003",
-    webhookApiUrl: process.env["WEBHOOK_API_URL"] ?? "http://localhost:3004",
+    // src/api (Go, service HTTP unifié) écoute sur 8080 (cf. src/api/cmd/api/main.go).
+    apiUrl: process.env["API_URL"] ?? "http://localhost:8080",
   };
 }

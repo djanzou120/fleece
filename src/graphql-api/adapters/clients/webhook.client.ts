@@ -1,6 +1,25 @@
-// Couche 3 — Client REST driven : implémentation de WebhookClient vers le Webhook Service (Go).
+// Couche 3 — Client REST driven : implémentation de WebhookClient, censée pointer vers le
+// service HTTP unifié `src/api` (Go) depuis M-025.
 // Utilise fetch global (Node 18+) — pas de package npm.
 // Convention stubs : retour valeurs vides / [] — voir identity.client.ts pour détails.
+//
+// ⚠️ ÉCART RÉEL NON COMBLÉ (M-025) — À TRANCHER PAR LE PM :
+// Ce client gère les endpoints webhook SORTANTS configurés par le dashboard (CRUD
+// "webhook-endpoints" : url + events abonnés côté workspace, cf. WebhookClient /
+// ManageWebhook / manage-webhook.ts). C'est un concept DIFFÉRENT des webhooks ENTRANTS
+// (callbacks providers OM/MTN/Telegram) migrés dans src/api sous /webhooks/om|mtn|telegram
+// (src/api/webhooks_om.go, webhooks_mtn.go, webhooks_telegram.go).
+// Confronté à `src/api/service.go` (registerRoutes) : AUCUNE route `/webhook-endpoints*`
+// n'existe dans le service unifié. Le schéma DB `webhook.webhook_endpoints` existe pourtant
+// toujours (migrations/0006_webhook.sql, 0010_webhook_schema.sql) mais src/api n'expose
+// aucun endpoint HTTP dessus — la fonctionnalité CRUD de gestion des webhooks sortants n'a
+// PAS été portée depuis l'ancien `src/webhook` (qui l'implémentait via
+// internal/application/usecases/register_endpoint.go). Les chemins ci-dessous
+// (`/webhook-endpoints`, `/webhook-endpoints/{id}`) sont donc CONSERVÉS TELS QUELS
+// (aucune route de remplacement n'existe à documenter) mais répondront 404 en production
+// tant que ce gap n'est pas comblé côté `src/api`. Ne pas deviner de nouveau chemin :
+// signalé au PM comme dette de migration, ne concerne pas ce ticket (M-025 = re-pointage
+// des URLs, pas ajout de fonctionnalité Go).
 
 import type { ApiContext } from "@fleece/api-common";
 import type {
@@ -98,5 +117,5 @@ export class WebhookRestClient implements WebhookClient {
 }
 
 // Assertion de conformité au port — erreur de compilation si l'interface diverge.
-const _conformance: WebhookClient = new WebhookRestClient("http://localhost:3004");
+const _conformance: WebhookClient = new WebhookRestClient("http://localhost:8080");
 void _conformance;

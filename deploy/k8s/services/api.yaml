@@ -1,0 +1,202 @@
+# api — unified Go HTTP service (M-024, replaces messaging/routing/provider/
+# wallet/webhook, see .ia/MIGRATION_PLAN.md "Architecture cible"). 22 internal
+# HTTP endpoints, port 8080. Built from docker/go.dockerfile ARG PKG=api,
+# binary produced from ./src/api/cmd/api (see mk/go.mk, D-M09).
+#
+# Env vars are read verbatim from src/api/cmd/api/main.go — do not rename
+# without updating that composition root:
+#   POSTGRES_DSN, AMQP_DSN (required)
+#   TWILIO_*, WHATSAPP_META_*, TELEGRAM_BASE_URL, TELEGRAM_BOT_TOKEN,
+#   OM_WEBHOOK_SECRET, MTN_WEBHOOK_SECRET (optional — empty = degraded/stub
+#   behaviour, see main.go comments; never omit TELEGRAM_BOT_TOKEN/
+#   OM_WEBHOOK_SECRET/MTN_WEBHOOK_SECRET from the Secret in production, D-M05)
+#
+# POSTGRES_SEARCH_PATH is intentionally ABSENT here (see D-M01 in
+# .ia/MIGRATION_PLAN.md): src/api queries all 8 schemas
+# (messaging/wallet/routing/provider/webhook/contact_intel/campaign/
+# analytics) over a single POSTGRES_DSN connection, and every query prefixes
+# its table with the owning schema explicitly. The composition root never
+# reads POSTGRES_SEARCH_PATH at all (grep confirms), so setting it here would
+# be dead configuration at best and misleading at worst — the 8 retired
+# per-service Deployments each pinned exactly one schema; there is no single
+# coherent value for a service that spans all of them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: fleece
+  labels:
+    app: api
+    app.kubernetes.io/component: service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres 5432; do
+                echo "waiting for postgres..."; sleep 3
+              done
+        - name: wait-for-rabbitmq
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z rabbitmq 5672; do
+                echo "waiting for rabbitmq..."; sleep 3
+              done
+        # D-M35 mitigation (deployment-level stopgap, see .ia/MIGRATION_PLAN.md
+        # and the DevOps M-024 report for the full analysis and the
+        # recommended CODE-level fix, which this initContainer does NOT
+        # replace).
+        #
+        # src/api/cmd/api/main.go only declares the "fleece" exchange at
+        # startup: it is a pure AMQP PRODUCER (messages_send.go,
+        # webhooks_telegram.go) and never declares the queues/bindings that
+        # core-processor and intelligence-processor own on their side. Today
+        # Conn.Publish uses mandatory=false, so RabbitMQ ACKs a message
+        # published to an exchange with no bound queue instead of returning
+        # it — Publish returns nil, nothing is logged, and the event
+        # (including delivery-status updates, the ONLY writer of
+        # messaging.messages.status since D-M26) is destroyed silently. If
+        # this Deployment's pods start serving traffic before
+        # core-processor/intelligence-processor have run at least once (e.g.
+        # first-ever cluster bring-up, or if only this Deployment is rolled),
+        # every DLR published during that window is lost forever with zero
+        # observability.
+        #
+        # This initContainer blocks api's own startup until both worker
+        # queues exist on the broker (visible via the RabbitMQ management
+        # HTTP API enabled by infra/rabbitmq.yaml) — i.e. until each worker
+        # has run its own composition root at least once and called
+        # EnsureQueueBound. It is a mitigation, not a fix: a rolling restart
+        # of core-processor alone (which does not delete the queue) does not
+        # retrigger this wait, and a manually deleted queue would still allow
+        # api to run in a lost-publish state once the initContainer has
+        # already succeeded once. See D-M35 for the two real fixes
+        # (mandatory=true + NotifyReturn, or a single topology-bootstrap Job
+        # independent of any consumer's uptime).
+        - name: wait-for-amqp-topology
+          image: curlimages/curl:8.11.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: fleece-config
+          command:
+            - sh
+            - -c
+            - |
+              creds=$(echo "$AMQP_DSN" | sed -E 's#amqp://([^@]+)@.*#\1#')
+              echo "waiting for AMQP topology: queues 'core-processor' and 'intelligence-processor' bound to exchange 'fleece'..."
+              until curl -sf -u "$creds" "http://rabbitmq:15672/api/queues/%2F/core-processor" >/dev/null 2>&1 \
+                 && curl -sf -u "$creds" "http://rabbitmq:15672/api/queues/%2F/intelligence-processor" >/dev/null 2>&1; do
+                echo "queues not ready yet (D-M35 mitigation), retrying in 5s"
+                sleep 5
+              done
+              echo "AMQP topology ready."
+      containers:
+        - name: api
+          image: fleece/api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: fleece-secret
+                  key: POSTGRES_DSN
+          # AMQP_DSN, TELEGRAM_BASE_URL come from the ConfigMap (non-sensitive
+          # defaults). TWILIO_*, WHATSAPP_META_*, TELEGRAM_BOT_TOKEN,
+          # OM_WEBHOOK_SECRET, MTN_WEBHOOK_SECRET come from the Secret
+          # (mandatory envFrom, matching the former provider.yaml pattern —
+          # api now owns everything provider.yaml used to own, plus webhook
+          # payment secrets, D-M05).
+          envFrom:
+            - configMapRef:
+                name: fleece-config
+            - secretRef:
+                name: fleece-secret
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # DNS name: api — internal URL becomes http://api:8080 (see
+  # config/configmap.yaml API_URL, read by graphql-api/rest-api (M-025) and
+  # by intelligence-processor's on_campaign_run.go for its own outbound
+  # POST /messages calls).
+  name: api
+  namespace: fleece
+  labels:
+    app: api
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# CPU-based HPA — api is a stateless HTTP server (like the 5 retired
+# Deployments it replaces), so a request/CPU-driven autoscaling signal is
+# appropriate here (unlike the two workers, see core-processor.yaml /
+# intelligence-processor.yaml). minReplicas/maxReplicas are a starting point
+# consolidating the aggregate capacity of the 5 former services
+# (messaging 2-10, wallet 2-6, routing 2-8, provider 2-10, webhook 2-8) into
+# one pool; tune against real load testing before production.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-hpa
+  namespace: fleece
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

@@ -1,0 +1,110 @@
+# core-processor — Go worker, pure RabbitMQ consumer (message.delivered /
+# message.failed → messaging.messages status + wallet refund). NO HTTP port
+# is exposed by this binary — see src/core-processor/cmd/core-processor/main.go.
+# Built from docker/go.dockerfile ARG PKG=core-processor (binary from
+# ./src/core-processor/cmd/core-processor, D-M09).
+#
+# No Service, no HPA:
+#   - No Service: nothing else in the cluster ever calls this worker over the
+#     network (it only dials out to Postgres/RabbitMQ); there is no port to
+#     route to.
+#   - No HPA: this worker IS safe to scale horizontally in principle — it has
+#     no in-process scheduler/ticker (compare intelligence-processor.yaml),
+#     each AMQP message is delivered to exactly one competing consumer by
+#     RabbitMQ, and its SQL guard (`UPDATE ... WHERE status NOT IN (...)`) is
+#     naturally idempotent under concurrent/duplicate delivery. However,
+#     there is currently NO reliable autoscaling metric wired into this
+#     cluster for it: CPU utilization (the only metric type usable with the
+#     bundled metrics-server, see api.yaml/auth-api.yaml/graphql-api.yaml) is
+#     a weak proxy for AMQP backlog for a lightweight per-message consumer —
+#     a growing queue depth does not reliably show up as CPU pressure, so a
+#     CPU-based HPA could sit at minReplicas while the queue backs up,
+#     providing false confidence. The correct signal per the target ("workers
+#     scalables sur la profondeur des files RabbitMQ", 10M msg/day / 99.9%)
+#     is a queue-depth-driven autoscaler (e.g. a KEDA ScaledObject on the
+#     `core-processor` queue's `messages_ready`), which requires operating
+#     KEDA (or a Prometheus + prometheus-adapter + rabbitmq-exporter stack)
+#     in this cluster — neither is present in deploy/k8s/infra/ today.
+#     Recommendation: add KEDA as a Phase-4/V2 infra task before relying on
+#     autoscaling here; until then, replicas is a fixed, manually-tuned value.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-processor
+  namespace: fleece
+  labels:
+    app: core-processor
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: core-processor
+  template:
+    metadata:
+      labels:
+        app: core-processor
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres 5432; do
+                echo "waiting for postgres..."; sleep 3
+              done
+        - name: wait-for-rabbitmq
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z rabbitmq 5672; do
+                echo "waiting for rabbitmq..."; sleep 3
+              done
+      containers:
+        - name: core-processor
+          image: fleece/core-processor:latest
+          imagePullPolicy: IfNotPresent
+          # No ports: block declares.
+          env:
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: fleece-secret
+                  key: POSTGRES_DSN
+          # AMQP_DSN, CORE_PROCESSOR_QUEUE come from the ConfigMap
+          # (non-sensitive; CORE_PROCESSOR_QUEUE matches the code default
+          # "core-processor", kept explicit here for operability).
+          envFrom:
+            - configMapRef:
+                name: fleece-config
+            - secretRef:
+                name: fleece-secret
+                optional: true
+          # No readinessProbe / livenessProbe: this binary exposes no
+          # HTTP/TCP port and holds no other externally-checkable readiness
+          # signal (see src/core-processor/cmd/core-processor/main.go — its
+          # only I/O is outbound Postgres + AMQP). Kubernetes already
+          # restarts the container on process exit via restartPolicy
+          # (default Always for Deployments); E9 (Phase 3 correctif) ensures
+          # every fatal startup/consume error now exits non-zero instead of
+          # the previous silent exit 0 ("worker zombie" bug), so the default
+          # restart-on-exit behaviour is a meaningful signal here. A synthetic
+          # exec probe (e.g. touching/checking a lockfile) would only prove
+          # the process is scheduled, not that it is actually consuming
+          # messages — the real liveness signal for an AMQP consumer is
+          # consumer count / queue depth on the broker side, which belongs in
+          # external monitoring (RabbitMQ management API / Prometheus), not a
+          # Kubernetes probe.
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

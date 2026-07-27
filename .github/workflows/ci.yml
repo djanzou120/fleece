@@ -32,6 +32,68 @@ jobs:
       - name: Test all Go sources
         run: go test ./src/...
 
+      - name: Install make
+        run: sudo apt-get install -y make
+
+      # D-M09 / M-024: `go build ./src/...` above only proves every package
+      # COMPILES — it does not prove `make build pkg=<x>` (what CI/CD and
+      # docker/go.dockerfile actually invoke) produces a real executable.
+      # src/api, src/core-processor and src/intelligence-processor each place
+      # their composition root in a src/<pkg>/cmd/<pkg> subdirectory (Go
+      # requires one package per directory), while src/<pkg> itself is an
+      # importable library package ("package api"/"package coreprocessor"/
+      # "package intelligenceprocessor") — `go build ./src/api` alone
+      # compiles fine but silently produces a library archive, not a binary,
+      # with exit code 0. mk/go.mk resolves this (see its own comment); this
+      # step exists so a future regression to mk/go.mk is caught in CI, not
+      # discovered first at deploy time. `messaging` is built too as a
+      # non-regression check for the legacy (main.go at package root) layout
+      # mk/go.mk must keep supporting until M-023.
+      - name: Build production binaries (real entrypoints, mk/go.mk D-M09)
+        run: |
+          set -euo pipefail
+          for pkg in api core-processor intelligence-processor messaging; do
+            make build pkg=$pkg
+            # `file` confirms an actual executable was produced, not an `ar
+            # archive` (the exact silent failure mode of D-M09).
+            file ./bin/$pkg | tee /dev/stderr | grep -qiE 'executable|ELF' \
+              || { echo "ERROR: ./bin/$pkg is not an executable (D-M09 regression?)"; exit 1; }
+          done
+
+      # D-M20: no depguard/.golangci.yml exists in this repository, so the
+      # "0 cross-service import" boundary rules asserted by CLAUDE.md /
+      # ARCHITECTURE.md §7 are otherwise checked only by manual architecture
+      # review. golangci-lint + depguard would be the preferred tool, but
+      # installing/configuring golangci-lint requires network access not
+      # guaranteed in every environment this repo is built in, and it was not
+      # possible to verify a working depguard config offline in this session
+      # (golangci-lint is not installed here — see DevOps report). This step
+      # is an explicit, verified SUBSTITUTE for depguard — not a full
+      # replacement — using only `go list -deps` (part of the Go toolchain
+      # already set up above) + grep. It enforces the one boundary explicitly
+      # called out by .ia/MIGRATION_PLAN.md (D-M20): neither worker may
+      # depend on the unified HTTP service (workers must be deployable/
+      # scalable independently of it, see deploy/k8s/services/) or on any of
+      # the 8 pre-migration Go services the migration replaces.
+      - name: Verify worker import boundaries (D-M20, depguard substitute)
+        run: |
+          set -euo pipefail
+          forbidden_pattern='^fleece/src/(api|messaging|routing|provider|wallet|webhook|contact-intelligence|campaign|analytics)(/|$)'
+          fail=0
+          for pkg in core-processor intelligence-processor; do
+            echo "checking fleece/src/${pkg}/... dependencies..."
+            deps=$(go list -deps ./src/${pkg}/...)
+            if echo "$deps" | grep -E "$forbidden_pattern"; then
+              echo "ERROR: fleece/src/${pkg} depends on a forbidden package (see above)."
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more workers import a forbidden package — see .ia/MIGRATION_PLAN.md D-M20."
+            exit 1
+          fi
+          echo "OK: no forbidden cross-service imports in core-processor / intelligence-processor."
+
   # -----------------------------------------------------------------------
   # TypeScript: type-check + esbuild bundle (auth-api, graphql-api, rest-api)
   # -----------------------------------------------------------------------

@@ -55,10 +55,12 @@ async function main(): Promise<void> {
   // Couche 3 — Instanciation des clients REST (implémentent les ports de sortie)
   // -------------------------------------------------------------------------
 
+  // identityClient reste sur auth-api (service TS Identity, inchangé par la migration).
+  // wallet/messaging/webhook pointent désormais sur la base unique src/api (M-025).
   const identityClient = new IdentityRestClient(config.authApiUrl);
-  const walletClient = new WalletRestClient(config.walletApiUrl);
-  const messagingClient = new MessagingRestClient(config.messagingApiUrl);
-  const webhookClient = new WebhookRestClient(config.webhookApiUrl);
+  const walletClient = new WalletRestClient(config.apiUrl);
+  const messagingClient = new MessagingRestClient(config.apiUrl);
+  const webhookClient = new WebhookRestClient(config.apiUrl);
 
   // -------------------------------------------------------------------------
   // Couche 2 — Instanciation des use cases (injectés avec les clients)

@@ -5,31 +5,57 @@ metadata:
   namespace: fleece
 data:
   # --- PostgreSQL (shared, non-sensitive) ---
+  # NOTE: POSTGRES_DRIVER/DEFAULT_CURRENCY below are legacy defaults read
+  # only by the 8 pre-migration Go services (src/messaging, src/routing, …,
+  # envOr(...) fallbacks) which src/api/src/core-processor/
+  # src/intelligence-processor do NOT read at all (grep-verified against
+  # each cmd/*/main.go). Harmless to keep (unused extra env vars in the 3
+  # new binaries) but no longer meaningful for the services actually
+  # deployed by deploy/k8s/services/ — kept for reference/non-K8s local runs.
   POSTGRES_DRIVER: "postgres"
-
-  # --- RabbitMQ ---
-  RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
-
-  # --- Routing service specific ---
   DEFAULT_CURRENCY: "XAF"
 
+  # --- RabbitMQ ---
+  # M-024: renamed from RABBITMQ_URL to AMQP_DSN. src/api,
+  # src/core-processor and src/intelligence-processor all read
+  # os.Getenv("AMQP_DSN") with NO fallback (unlike the retired services'
+  # envOr("RABBITMQ_URL", ...)) — the old key would have left all 3 new
+  # binaries unable to start ("AMQP_DSN is not set — cannot start").
+  AMQP_DSN: "amqp://guest:guest@rabbitmq:5672/"
+
   # --- Inter-service URLs (DNS names = Kubernetes Service names) ---
-  ROUTING_URL: "http://routing:8083"
-  WALLET_URL: "http://wallet:8082"
-  PROVIDER_URL: "http://provider:8084"
-  MESSAGING_API_URL: "http://messaging:8081"
-  WEBHOOK_API_URL: "http://webhook:8085"
+  # M-024: the 8 retired Go services (messaging/routing/provider/wallet/
+  # webhook/contact-intelligence/campaign/analytics) are replaced by ONE
+  # unified HTTP service, src/api, on port 8080. A single API_URL replaces
+  # ROUTING_URL/WALLET_URL/PROVIDER_URL/MESSAGING_API_URL/WEBHOOK_API_URL/
+  # WALLET_API_URL. Coordinated with M-025 (fleece-ts-engineer): graphql-api
+  # and rest-api read this exact key (see
+  # src/graphql-api/infrastructure/config.ts `process.env["API_URL"]`) — do
+  # not rename without updating both sides. intelligence-processor also
+  # reads this same key for its own outbound POST /messages calls
+  # (on_campaign_run.go).
+  API_URL: "http://api:8080"
   AUTH_API_URL: "http://auth-api:3001"
-  WALLET_API_URL: "http://wallet:8082"
 
-  # --- Go services: PORT overrides (each service gets its own value via envFrom + env override) ---
-  # These are declared per-Deployment; kept here for documentation purposes.
-  # messaging: PORT=8081, wallet: PORT=8082, routing: PORT=8083,
-  # provider: PORT=8084, webhook: PORT=8085
+  # --- Workers: RabbitMQ queue names ---
+  # Optional in code (defaults match exactly — see
+  # src/core-processor/service.go / src/intelligence-processor/service.go)
+  # but pinned explicitly here for operability (renaming a queue is then a
+  # ConfigMap change, not a code change).
+  CORE_PROCESSOR_QUEUE: "core-processor"
+  INTELLIGENCE_PROCESSOR_QUEUE: "intelligence-processor"
 
-  # --- Go services: POSTGRES_SEARCH_PATH per service ---
-  # Set individually in each Deployment via env[]; kept here for reference.
-  # messaging=messaging, wallet=wallet, routing=routing, provider=provider, webhook=webhook
+  # --- intelligence-processor: ticker intervals ---
+  # Optional in code (defaults: 30s / 5m — see
+  # src/intelligence-processor/cmd/intelligence-processor/main.go), pinned
+  # explicitly for operability.
+  CAMPAIGN_SCHEDULER_INTERVAL: "30s"
+  ANALYTICS_REFRESH_INTERVAL: "5m"
+
+  # --- Telegram provider (src/api/providers/telegram.go) ---
+  # Base URL only — non-sensitive. TELEGRAM_BOT_TOKEN is a Secret (D-M05),
+  # see config/secret.example.yaml.
+  TELEGRAM_BASE_URL: "https://api.telegram.org"
 
   # --- TypeScript services ---
   # auth-api
