@@ -1,0 +1,11 @@
+{
+  "name": "@fleece/model",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Définitions Drizzle du schéma PostgreSQL `identity` (query builder + typage). Atlas reste la source de vérité des migrations — voir README.md.",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./schema": "./schema/identity.ts"
+  }
+}

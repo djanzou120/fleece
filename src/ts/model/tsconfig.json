@@ -8,12 +8,8 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "baseUrl": ".",
-    "paths": {
-      "@fleece/api-common": ["../../src/ts/api-common/index.ts"],
-      "@fleece/model": ["../../src/ts/model/index.ts"]
-    }
+    "baseUrl": "."
   },
-  "include": ["**/*.ts"],
-  "exclude": ["**/__tests__/**", "node_modules"]
+  "include": ["index.ts", "schema/**/*.ts", "drizzle.config.ts"],
+  "exclude": ["node_modules", ".drizzle-out"]
 }

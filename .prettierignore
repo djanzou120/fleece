@@ -1,0 +1,13 @@
+# Sorties générées — ne jamais les reformater ni les vérifier.
+#
+# .drizzle-out/ est l'espace de travail jetable de drizzle-kit (voir
+# src/ts/model/drizzle.config.ts) : DDL et snapshots JSON produits par
+# `make generate pkg=ts/model` pour la vérification de parité avec Atlas.
+# Ils sont régénérés à la demande, ignorés par git, et leur mise en forme
+# appartient à drizzle-kit — faire échouer `make fmt-check` dessus n'aurait
+# aucun sens.
+**/.drizzle-out/
+
+# Artefacts de build
+bin/
+node_modules/

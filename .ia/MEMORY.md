@@ -273,7 +273,55 @@ converger.
   routes). Le port `:8080` codé en dur est **cohérent** avec le manifeste K8s, qui n'injecte aucune
   variable `PORT`.
 
-**D-M46 (nouvelle dette, pré-existante).** Les clients REST de `graphql-api` sont **tous des stubs** — le
+### Session 2026-07-31 (Phase 6) — Drizzle : `@fleece/model`, M-027 à M-029
+
+**Le plan de migration est intégralement exécuté (M-001 → M-029).**
+
+**Ce que la Phase 6 était vraiment.** L'énoncé disait « convertir les migrations en définitions Drizzle ».
+En réalité `src/auth-api/infrastructure/db/schema.ts` contenait des **stubs maison** — un `pgSchemaStub`,
+de faux `uuid()`/`text()`/`varchar()` — **sans clé primaire, sans NOT NULL, sans valeur par défaut, sans
+clé étrangère, sans UNIQUE**. Et son commentaire « OFFLINE STUB : drizzle-orm non installé » était **faux** :
+`drizzle-orm@0.39.3` et `drizzle-kit@0.30.6` sont installés. Ce n'était donc pas une conversion mais une
+**réécriture**, avec du vrai `drizzle-orm/pg-core`.
+
+**Deux écarts assumés par rapport à l'énoncé :**
+
+1. **Périmètre `identity` seulement** (pas 0002/0003/0006). L'énoncé se contredisait — sa propre parenthèse
+   disait « schémas `identity` ». Surtout, modéliser les schémas de services Go dans un paquet TS violerait
+   « un schéma par service ». J'ai vérifié avant de trancher : `graphql-api` n'a **aucun** accès SQL, il lit
+   ces domaines via les clients REST. Exposer `wallet`/`messaging` ici aurait invité précisément l'accès
+   cross-schéma que l'architecture interdit.
+2. **`make migrate pkg=ts/model` REFUSE de s'exécuter.** Une cible `migrate` qui migrerait vraiment via
+   Drizzle violerait la règle du dépôt et casserait `atlas.sum`. J'ai gardé le nom — c'est celui qu'on tape
+   par réflexe — mais il échoue en indiquant Atlas. **Échouer bruyamment vaut mieux qu'une cible absente**,
+   qui ne renvoie qu'un « No rule to make target » n'apprenant rien. Le garde-fou est **exécutable** :
+   `drizzle.config.ts` ne déclare aucun `dbCredentials` (donc `push`/`migrate` ne peuvent pas démarrer) et
+   `out` pointe sur `.drizzle-out/` (gitignoré), **jamais** sur `migrations/`.
+
+**M-028 : l'équivalence a été PROUVÉE, pas relue.** Deux bases PostgreSQL 16 neuves — l'une par
+`atlas migrate apply`, l'autre par le DDL de `drizzle-kit generate` — puis comparaison de leur
+**introspection**, et non du texte SQL (qui diffère légitimement en ordre et en mise en forme).
+**28 colonnes, 8 contraintes, 7 index, 1 séquence : 0 différence.** Deux détails rendent cette égalité
+atteignable, à préserver si le schéma bouge : les contraintes `UNIQUE` sont **nommées explicitement** du nom
+que PostgreSQL génère (`users_email_key`…), et `uq_workspaces_slug` est un **index unique**, pas une
+contrainte, parce que c'est ainsi que 0011 le crée. Seuls les noms de FK diffèrent — le nom auto-généré
+d'une FK n'est pas une propriété du schéma.
+
+**D-M47 (bloquante CI, découverte en chemin, pré-existante).** `npm install` **et** `npm ci` échouent à la
+racine : le lockfile porte `graphql@17.0.1` alors que `@graphql-codegen/cli@5.0.2` plafonne son peer à
+`graphql@16`, et npm ≥ 7 fait respecter les peers. J'ai vérifié que ce n'était pas moi : **`make build
+pkg=ts/logger`, un paquet que je n'ai pas touché, échoue à l'identique**. Toutes les cibles TS sont donc
+inopérantes, et la CI enchaîne `npm ci` puis `make build` sur 4 paquets TS. **Je ne l'ai délibérément pas
+corrigée** : changer la version de `graphql` ou du codegen peut modifier le SDL généré et les types du BFF —
+c'est une décision produit, pas un effet de bord d'une tâche Drizzle. `mk/drizzle.mk` découple donc
+`generate`/`build` de `deps`, pour que la Phase 6 reste vérifiable malgré ce blocage.
+
+**Reste ouvert côté TS** : la couche de persistence d'`auth-api` est toujours stubée (les trois dépôts
+lèvent des erreurs explicites, leurs requêtes sont en commentaire). M-029 demandait d'**importer le schéma**,
+pas d'implémenter la persistence — voir **D-M48** pour l'ajustement camelCase de ces exemples le jour de
+leur activation.
+
+**D-M46 (dette, pré-existante).** Les clients REST de `graphql-api` sont **tous des stubs** — le
 `fetch` est commenté (`TODO(production)`, `void baseUrl`). L'intégration BFF ↔ `src/api` n'est donc
 exercée **nulle part** : `tsc` est vert sans qu'aucune requête ne parte. C'est le même angle mort qui avait
 laissé passer D-M40 jusqu'en M-025. J'ai re-confronté les 7 chemins appelés aux 26 routes réellement
