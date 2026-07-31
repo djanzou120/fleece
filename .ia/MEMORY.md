@@ -5,7 +5,7 @@
 > **À lire en premier** au début d'une session pour retrouver le contexte. **À mettre à jour** à la fin
 > de tout changement structurant (nouvelle décision, nouveau module, changement de convention).
 >
-> Dernière mise à jour : **2026-07-14**.
+> Dernière mise à jour : **2026-07-31**.
 
 ---
 
@@ -141,6 +141,59 @@ Dépendances **vers l'intérieur uniquement** ; inversion via ports.
 ---
 
 ## 7. Journal des sessions
+
+### Session 2026-07-31 — D-M43 (livraison des webhooks sortants) + D-M44/E5
+
+**Contexte.** Dernier trou fonctionnel de la migration : le CRUD des webhooks sortants avait été porté
+(D-M40, Phase 4) mais pas leur **livraison** — la moitié de T-005 vivait encore uniquement dans
+`src/webhook/`, que M-023 doit supprimer. D-M43 était donc bloquant à la fois pour la Phase 5 et pour M-023.
+
+**Livré.** Volet livraison porté dans **`core-processor`** (le worker qui consomme déjà
+`message.delivered`/`message.failed`), **pas** dans l'API HTTP : `webhook_signature.go` (HMAC-SHA256,
+`X-Fleece-Signature`, comparaison en temps constant), `webhook_dispatch.go` (POST, timeout 10s, fan-out
+concurrent borné à 5, persistance dans `webhook.webhook_deliveries`), `webhook_retry_scheduler.go`
+(backoff 1m/5m/30m/2h, max 5 tentatives → `exhausted`), `webhook_persist_context.go`. Démarré en goroutine
+par le composition root (`WEBHOOK_RETRY_INTERVAL`, défaut 30s). **Aucune migration** — les colonnes
+`payload`/`next_retry_at` étaient déjà prévues par 0006 + 0010.
+
+**Décisions structurantes (issues de deux revues d'architecture — à ne pas défaire) :**
+
+1. **Marquage par bail, jamais par `NULL` (B1).** La capture pose `next_retry_at = now() + 5min` au lieu de
+   `NULL`. Un marquage à `NULL` est correct pour l'anti-double-traitement mais **irréversible** : si le worker
+   meurt entre la capture et la finalisation — un **SIGTERM**, c'est-à-dire l'arrêt **normal** d'un
+   déploiement, pas un crash rare — la ligne n'est plus jamais reselectionnée par aucun replica. C'est
+   exactement le piège D-M31. Avec un bail, une ligne orpheline redevient éligible toute seule.
+   *Corollaire obligatoire* : `attempts` est incrémenté **à la capture**, et jamais réincrémenté en aval.
+2. **Capture bornée (E2).** `LIMIT 100` + `FOR UPDATE SKIP LOCKED`. Sans borne, un lot de N lignes dure
+   N/5 × 10s ; au-delà de ~150 lignes il dépasse le bail, un autre replica recapture les mêmes lignes et le
+   client final reçoit une **double livraison** (`core-processor` tourne à 3 replicas). Dimensionnement :
+   200s de traitement max contre 300s de bail.
+3. **Bail calculé côté Postgres (N4).** `now() + make_interval(secs => $n)`, jamais `time.Now().Add(...)`
+   côté Go : le filtre de sélection compare à `now()` **côté serveur**, une dérive d'horloge pod/DB rendrait
+   un bail calculé côté Go inopérant dans les deux sens.
+4. **`we.active = true` dans la jointure de capture (E6)** — sans ce filtre, un endpoint supprimé
+   (suppression *logique*, cf. D-M40) continuait de recevoir 4 retries sur ~2h36 après sa suppression.
+
+**Sécurité (D-M44 + E5).** `validateWebhookURL` exige `https` ; l'exemption `localhost`/`127.0.0.1` est
+restreinte au **hors-production** (`FLEECE_ENV`, défaut = production). **E5 est le point important, découvert
+en revue** : exiger `https` ne valide que le *schéma*, or le worker émet de vrais POST **depuis l'intérieur du
+cluster** — `https://169.254.169.254/…` (métadonnées cloud) ou toute IP privée passaient. Les IP **littérales**
+privées/loopback/link-local (v4 et v6) sont désormais rejetées à la création. *Limite assumée* : un nom de
+domaine n'est pas résolu (une résolution à la création ne protège pas du **DNS rebinding** au dispatch).
+
+**Produit (E3).** La liste d'événements du dashboard tombe de 7 à **2** (`message.delivered`,
+`message.failed`) — les seuls que `core-processor` livre réellement, et le serveur rejette désormais le reste
+en 400. Les 5 autres produisaient un 201 trompeur suivi d'un silence total. **Retirés, pas affichés
+« bientôt disponible »** : aucune roadmap engagée ne garantissait leur livraison.
+
+**Mise au vert (reprise de session).** 3 tests étaient restés sur le contrat d'**avant** N4/E2 et échouaient ;
+réalignés en assertant le calcul **côté serveur** (un `time.Time` dans cet argument *est* la régression à
+empêcher) et la borne de capture. État final : `go build`/`go vet` exit 0, `go test ./src/...` **0 FAIL**,
+**273 tests PASS** (core-processor + api), `gofmt` vide sur les paquets touchés, `go mod tidy` sans diff,
+`tsc --noEmit` platform-app 0 erreur, 0 import d'un ancien service.
+
+**Reste ouvert.** **M-023** (suppression de 8 services Go + branche `wip/T-018-campaign`) attend toujours le
+**feu vert explicite de l'utilisateur** — c'est désormais le *seul* bloquant avant la Phase 5.
 
 ### Session 2026-07-14 — Pivot architecture + plan de migration
 

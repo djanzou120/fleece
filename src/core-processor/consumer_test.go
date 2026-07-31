@@ -2,6 +2,7 @@ package coreprocessor
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -170,7 +171,14 @@ func TestDispatch_routingKeyInconnue(t *testing.T) {
 }
 
 func TestDispatch_nominal_delivered(t *testing.T) {
-	conn := &fakeConn{execSteps: []execStep{{result: fakeExecResult{rows: 1}}}}
+	// E2 (D-M43) : handleMessageDelivered emet desormais un UPDATE ... RETURNING
+	// workspace_id (Query), plus un ExecStep. workspace_id="" fait que le
+	// fan-out webhook (D-M43) s'arrete immediatement (voir fanOutWebhookEvent,
+	// garde "workspace_id vide"), sans requete supplementaire — ce test ne
+	// s'interesse qu'au dispatch lui-meme.
+	conn := &fakeConn{querySteps: []queryStep{
+		{rows: fakeRowsOfCols([]string{"workspace_id"}, []driver.Value{""})},
+	}}
 	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: testLogger()}
 	body, _ := json.Marshal(messageEvent{MessageID: testMessageID})
 	delivery := amqp091.Delivery{RoutingKey: "message.delivered", Body: body}
@@ -208,7 +216,12 @@ var _ amqp091.Acknowledger = (*fakeAcknowledger)(nil)
 // ============================================================
 
 func TestProcessDelivery_success_acks(t *testing.T) {
-	conn := &fakeConn{execSteps: []execStep{{result: fakeExecResult{rows: 1}}}}
+	// E2 (D-M43) : handleMessageDelivered emet un UPDATE ... RETURNING
+	// workspace_id (Query, pas Exec) — workspace_id="" court-circuite le
+	// fan-out webhook sans requete supplementaire (voir fanOutWebhookEvent).
+	conn := &fakeConn{querySteps: []queryStep{
+		{rows: fakeRowsOfCols([]string{"workspace_id"}, []driver.Value{""})},
+	}}
 	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: testLogger()}
 	ack := &fakeAcknowledger{}
 	body, _ := json.Marshal(messageEvent{MessageID: testMessageID})
@@ -240,7 +253,10 @@ func TestProcessDelivery_permanentError_nacksWithoutRequeue(t *testing.T) {
 }
 
 func TestProcessDelivery_dbError_nacksWithRequeue(t *testing.T) {
-	conn := &fakeConn{execSteps: []execStep{{err: errors.New("connexion perdue")}}}
+	// E2 (D-M43) : handleMessageDelivered emet desormais un Query (UPDATE ...
+	// RETURNING workspace_id), pas un Exec — la panne technique doit donc
+	// etre programmee sur querySteps.
+	conn := &fakeConn{querySteps: []queryStep{{err: errors.New("connexion perdue")}}}
 	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: testLogger()}
 	ack := &fakeAcknowledger{}
 	body, _ := json.Marshal(messageEvent{MessageID: testMessageID})
@@ -261,9 +277,13 @@ func TestProcessDelivery_doubleTraitement_uneSeuleTransition(t *testing.T) {
 	// (simulee ici par le fakeConn qui retourne rows=1 puis rows=0) fait que
 	// la 2e delivery est quand meme Ack (succes no-op), jamais requeue ni
 	// traitee comme une erreur.
-	conn := &fakeConn{execSteps: []execStep{
-		{result: fakeExecResult{rows: 1}}, // 1ere delivery : transition reelle
-		{result: fakeExecResult{rows: 0}}, // 2e delivery (redelivery) : idempotence
+	// E2 (D-M43) : handleMessageDelivered emet un Query (UPDATE ... RETURNING
+	// workspace_id), pas un Exec — workspace_id="" sur la 1ere delivery
+	// court-circuite le fan-out webhook (garde "workspace_id vide") pour que
+	// ce test ne s'interesse qu'a l'idempotence du dispatch AMQP lui-meme.
+	conn := &fakeConn{querySteps: []queryStep{
+		{rows: fakeRowsOfCols([]string{"workspace_id"}, []driver.Value{""})}, // 1ere delivery : transition reelle
+		{rows: fakeRowsOfCols([]string{"workspace_id"})},                     // 2e delivery (redelivery) : 0 ligne -> idempotence
 	}}
 	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: testLogger()}
 	ack := &fakeAcknowledger{}
@@ -278,8 +298,8 @@ func TestProcessDelivery_doubleTraitement_uneSeuleTransition(t *testing.T) {
 	if len(ack.nacked) != 0 {
 		t.Fatalf("Nack appele %d fois, voulu 0", len(ack.nacked))
 	}
-	if conn.execPos != 2 {
-		t.Fatalf("nombre d'UPDATE executes = %d, voulu 2 (une transition + un no-op)", conn.execPos)
+	if conn.queryPos != 2 {
+		t.Fatalf("nombre d'UPDATE...RETURNING executes = %d, voulu 2 (une transition + un no-op)", conn.queryPos)
 	}
 }
 

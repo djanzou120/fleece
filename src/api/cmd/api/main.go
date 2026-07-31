@@ -12,6 +12,11 @@
 //
 //	OM_WEBHOOK_SECRET  — clé HMAC-SHA256 des callbacks Orange Money.
 //	MTN_WEBHOOK_SECRET — clé HMAC-SHA256 des callbacks MTN Mobile Money.
+//	FLEECE_ENV         — environnement d'exécution (E5, webhook_endpoints_create.go) :
+//	                     seule une valeur "development"/"dev"/"test"/"local" autorise
+//	                     l'exemption localhost/127.0.0.1 en HTTP à la création d'un
+//	                     webhook-endpoint. Absente/vide = PRODUCTION (exemption désactivée,
+//	                     comportement le plus sûr par défaut).
 //
 // Si une variable requise est absente ou si la connexion échoue, le programme log et
 // retourne. En production, envisager os.Exit(1) à la place.
@@ -132,6 +137,10 @@ func main() {
 		logger.Warn("api: MTN_WEBHOOK_SECRET non défini — callbacks MTN MoMo acceptés sans vérification (dev/test uniquement)")
 	}
 
+	// FLEECE_ENV (E5) — voir doc de tête de fichier et Service.Env : absent/vide
+	// = production (exemption localhost/127.0.0.1 désactivée par défaut).
+	env := os.Getenv("FLEECE_ENV")
+
 	// Composition root : injection manuelle des dépendances dans Service.
 	svc := &api.Service{
 		DB:               db,
@@ -140,6 +149,7 @@ func main() {
 		Providers:        providers.BuildRegistry(providerCfg),
 		OMWebhookSecret:  omWebhookSecret,
 		MTNWebhookSecret: mtnWebhookSecret,
+		Env:              env,
 	}
 	if err := svc.Init(); err != nil {
 		logger.Error("api: service init failed", "err", err)

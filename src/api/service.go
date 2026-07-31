@@ -44,6 +44,17 @@ type Service struct {
 	// (POST /webhooks/mtn, header X-MTN-Signature). Voir webhooks_mtn.go.
 	MTNWebhookSecret string `key:"mtn_webhook_secret"`
 
+	// Env identifie l'environnement d'exécution (variable d'environnement
+	// FLEECE_ENV, injectée manuellement dans le composition root,
+	// cmd/api/main.go). E5 (revue architecture Phase 3 / D-M43,
+	// webhook_endpoints_create.go) : seule une valeur explicitement
+	// "development"/"dev"/"test"/"local" (isNonProductionEnv) autorise
+	// l'exemption localhost/127.0.0.1 en HTTP de validateWebhookURL — AVANT
+	// ce correctif l'exemption s'appliquait INCONDITIONNELLEMENT, y compris
+	// en production. Vide/absent = PRODUCTION (comportement le plus sûr par
+	// défaut, voir isNonProductionEnv).
+	Env string `key:"env"`
+
 	mux *http.ServeMux
 }
 

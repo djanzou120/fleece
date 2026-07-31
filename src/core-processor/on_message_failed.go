@@ -37,6 +37,18 @@ package coreprocessor
 // Le plan de migration initial mentionnait "emit wallet.refund si applicable"
 // (voir .ia/MIGRATION_PLAN.md M-020) — cet ecart est deliberement enterine
 // ici : ecriture DB transactionnelle uniquement.
+//
+// FAN-OUT WEBHOOKS SORTANTS (D-M43, voir webhook_dispatch.go) : APRES chaque
+// tx.Commit() reussi (JAMAIS a l'interieur de la transaction ci-dessus — un
+// appel HTTP externe ne doit jamais tenir de verrous Postgres), et
+// UNIQUEMENT sur les chemins ou la transition a REELLEMENT eu lieu (l'UPDATE
+// du step 1 a renvoye une ligne, donc row.WorkspaceID est renseigne) — jamais
+// sur le chemin sql.ErrNoRows (idempotence B1/D-M26 : un rejeu Telegram ne
+// doit jamais declencher un second webhook client). workspace_id est
+// REUTILISE depuis le RETURNING du step 1, jamais une seconde requete. Cette
+// fonction est void : un echec de fan-out (endpoint client indisponible,
+// panne DB de persistance de la delivery) ne fait jamais echouer ce handler
+// ni requeue le message AMQP — le statut/remboursement sont deja committes.
 import (
 	"context"
 	"database/sql"
@@ -107,7 +119,15 @@ func handleMessageFailed(ctx context.Context, s *Service, evt messageEvent) erro
 	if !shouldRefundCost(row.Cost) {
 		s.Logger.Info("core-processor: message marque failed, aucun remboursement (cost NULL ou 0)",
 			"message_id", evt.MessageID, "workspace_id", row.WorkspaceID)
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		// Fan-out webhooks sortants (D-M43) : APRES commit, la transition a
+		// bien eu lieu (row scannee au step 1 -> rows == 1), voir doc de tete
+		// de fichier et webhook_dispatch.go. workspace_id reutilise depuis le
+		// RETURNING ci-dessus (jamais une seconde requete).
+		s.fanOutWebhookEvent(ctx, "message.failed", evt, row.WorkspaceID)
+		return nil
 	}
 	cost := row.Cost.Int64
 
@@ -136,7 +156,15 @@ func handleMessageFailed(ctx context.Context, s *Service, evt messageEvent) erro
 		// manquant (traçable via ce log).
 		s.Logger.Error("core-processor: remboursement impossible, wallet introuvable (anomalie de donnees)",
 			"message_id", evt.MessageID, "workspace_id", row.WorkspaceID, "cost", cost)
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		// Fan-out webhooks sortants (D-M43) : la transition de statut a bien
+		// eu lieu (rows == 1) independamment de cette anomalie de remboursement
+		// — le client final doit etre notifie de l'echec du message que le
+		// wallet ait pu etre credite ou non.
+		s.fanOutWebhookEvent(ctx, "message.failed", evt, row.WorkspaceID)
+		return nil
 	}
 	if err != nil {
 		return err // transitoire -> requeue
@@ -165,5 +193,12 @@ func handleMessageFailed(ctx context.Context, s *Service, evt messageEvent) erro
 	s.Logger.Info("core-processor: message marque failed, remboursement applique",
 		"message_id", evt.MessageID, "workspace_id", row.WorkspaceID,
 		"cost", cost, "new_balance", newBalance.Balance)
+
+	// Fan-out webhooks sortants (D-M43) : APRES commit (jamais dans la
+	// transaction ci-dessus — un appel HTTP externe ne doit jamais tenir de
+	// verrous Postgres), et UNIQUEMENT car rows == 1 au step 1 (garde
+	// anti-doublon-client, voir doc de tete de fichier et webhook_dispatch.go).
+	s.fanOutWebhookEvent(ctx, "message.failed", evt, row.WorkspaceID)
+
 	return nil
 }

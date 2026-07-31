@@ -20,23 +20,19 @@ package coreprocessor
 //	rejected  → (terminal)
 //
 // Le SEUL etat depuis lequel "delivered" est une transition autorisee est
-// "sent". La garde precedente ("status NOT IN ('delivered', 'failed',
-// 'rejected')") etait TROP LARGE : elle laissait passer 'draft' → 'delivered'
-// et 'pending' → 'delivered', deux transitions que la machine a etats
-// interdit explicitement — un bug reel independant du desarmement B1 (webhook
-// qui posait le statut avant ce worker). La garde ci-dessous ("status = 'sent'")
-// est le miroir exact de la seule arete entrante de "delivered" dans
-// messageTransitions : SI Message.Transition() evolue un jour (nouvelle arete
-// vers delivered, ou suppression de l'arete sent→delivered), CETTE GARDE SQL
-// DOIT ETRE MISE A JOUR EN MEME TEMPS (aucune verification automatique ne les
-// lie aujourd'hui — ce worker n'importe pas fleece/src/api, voir note
-// ci-dessous).
+// "sent". La garde ci-dessous ("status = 'sent'") est le miroir exact de la
+// seule arete entrante de "delivered" dans messageTransitions : SI
+// Message.Transition() evolue un jour (nouvelle arete vers delivered, ou
+// suppression de l'arete sent→delivered), CETTE GARDE SQL DOIT ETRE MISE A
+// JOUR EN MEME TEMPS (aucune verification automatique ne les lie aujourd'hui
+// — ce worker n'importe pas fleece/src/api, voir note ci-dessous).
 //
 // IDEMPOTENCE : la garde SQL "AND status = 'sent'" fait qu'un double-traitement
 // (redelivery AMQP apres un Ack perdu en reseau, ou un replay operateur) ne
 // change rien a la deuxieme execution — le statut est deja 'delivered' (ou
-// tout autre etat non-'sent'), donc 0 ligne affectee, traite comme un succes
-// no-op (log INFO/WARN, jamais d'erreur).
+// tout autre etat non-'sent'), donc RETURNING ne renvoie aucune ligne
+// (sql.ErrNoRows), traite comme un succes no-op (log INFO/WARN, jamais
+// d'erreur).
 //
 // POURQUOI PAS api.Message.Transition() : la machine a etats Message vit dans
 // fleece/src/api (structure plate, package api). L'utiliser depuis ce worker
@@ -48,35 +44,78 @@ package coreprocessor
 // meme invariante (seule "sent" autorise la transition vers "delivered") de
 // facon atomique et sans dependance croisee entre les deux binaires
 // deployables.
+//
+// E2 (revue architecture Phase 3) — UNE SEULE REQUETE (UPDATE ... RETURNING
+// workspace_id), PLUS DE SECONDE LECTURE : AVANT ce correctif, ce handler
+// utilisait ExecRows (rows affectees seulement) puis, si rows == 1,
+// fanOutMessageDelivered relisait workspace_id par une SECONDE requete
+// (lookupMessageWorkspace, SELECT ... FROM messaging.messages) — une requete
+// superflue pour CHAQUE message delivered, meme en l'absence de tout endpoint
+// abonne. on_message_failed.go faisait deja bien (RETURNING workspace_id,
+// cost en une seule requete) : ce handler est desormais aligne sur le meme
+// motif — RETURNING workspace_id directement dans l'UPDATE de transition,
+// via s.DB.Get (sql.ErrNoRows ≡ 0 ligne ≡ garde "status = 'sent'" non
+// satisfaite). La garde "status = 'sent'" et la semantique d'idempotence
+// SONT INCHANGEES — seul le mode de recuperation de workspace_id change.
+//
+// FAN-OUT WEBHOOKS SORTANTS (D-M43, voir webhook_dispatch.go) : lorsque la
+// transition a REELLEMENT eu lieu (RETURNING a renvoye une ligne,
+// workspace_id connu), ce handler appelle s.fanOutWebhookEvent APRES
+// l'UPDATE ci-dessus (donc apres son commit implicite — une instruction SQL
+// hors transaction explicite est committee des son execution) et JAMAIS sur
+// le chemin sql.ErrNoRows (idempotence B1/D-M26 : un rejeu Telegram ne doit
+// jamais declencher un second webhook client). workspace_id est REUTILISE
+// depuis le RETURNING ci-dessus, jamais une seconde requete (E2). Cette
+// fonction est void (elle ne retourne aucune erreur) : un echec de fan-out
+// webhook (endpoint client indisponible, panne DB de persistance de la
+// delivery) ne doit JAMAIS faire echouer ce handler ni provoquer un requeue
+// du message AMQP — le statut est deja committe.
 import (
 	"context"
+	"database/sql"
+	"errors"
 )
+
+// deliveredMessageRow scanne le RETURNING de l'UPDATE messaging.messages :
+// workspace_id, seul necessaire au fan-out webhook (E2 — plus de seconde
+// requete, voir doc de tete de fichier).
+type deliveredMessageRow struct {
+	WorkspaceID string `db:"workspace_id"`
+}
 
 // handleMessageDelivered traite l'evenement "message.delivered".
 func handleMessageDelivered(ctx context.Context, s *Service, evt messageEvent) error {
-	rows, err := s.DB.ExecRows(ctx,
+	var row deliveredMessageRow
+	err := s.DB.Get(ctx, &row,
 		`UPDATE messaging.messages SET status = 'delivered'
-		   WHERE id = $1 AND status = 'sent'`,
+		   WHERE id = $1 AND status = 'sent'
+		 RETURNING workspace_id`,
 		evt.MessageID,
 	)
-	if err != nil {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// Idempotence : soit le statut n'est plus 'sent' (deja 'delivered' —
+		// double-traitement — ou un autre etat non-'sent', ex. 'failed'/'rejected'/
+		// 'draft'/'pending'), soit id inexistant. Dans tous les cas ce n'est PAS
+		// une erreur — le message AMQP est acquitte normalement (Ack), seul le
+		// log distingue le cas pour observabilite. AUCUN fan-out webhook (B1/D-M26).
+		s.Logger.Info("core-processor: message.delivered ignore (statut deja 'delivered' ou pas 'sent', ou introuvable)",
+			"message_id", evt.MessageID, "external_id", evt.ExternalID, "provider_id", evt.ProviderID)
+		return nil
+	case err != nil:
 		// Erreur technique (ex. DB indisponible) : transitoire -> requeue
 		// (voir consumer.go, processDelivery).
 		return err
 	}
 
-	if rows == 0 {
-		// Idempotence : soit le statut n'est plus 'sent' (deja 'delivered' —
-		// double-traitement — ou un autre etat non-'sent', ex. 'failed'/'rejected'/
-		// 'draft'/'pending'), soit id inexistant. Dans tous les cas ce n'est PAS
-		// une erreur — le message AMQP est acquitte normalement (Ack), seul le
-		// log distingue le cas pour observabilite.
-		s.Logger.Info("core-processor: message.delivered ignore (statut deja 'delivered' ou pas 'sent', ou introuvable)",
-			"message_id", evt.MessageID, "external_id", evt.ExternalID, "provider_id", evt.ProviderID)
-		return nil
-	}
-
 	s.Logger.Info("core-processor: message marque delivered",
 		"message_id", evt.MessageID, "external_id", evt.ExternalID, "provider_id", evt.ProviderID)
+
+	// Fan-out webhooks sortants (D-M43) : APRES commit, UNIQUEMENT car la
+	// transition a reellement eu lieu ci-dessus (garde anti-doublon-client,
+	// voir doc de tete de fichier). workspace_id reutilise depuis le
+	// RETURNING ci-dessus (E2, jamais une seconde requete).
+	s.fanOutWebhookEvent(ctx, "message.delivered", evt, row.WorkspaceID)
+
 	return nil
 }

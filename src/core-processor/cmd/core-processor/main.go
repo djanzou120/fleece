@@ -9,9 +9,11 @@
 //	POSTGRES_DSN — DSN PostgreSQL (ex. postgres://user:pass@host:5432/fleece?sslmode=disable)
 //	AMQP_DSN     — URL RabbitMQ    (ex. amqp://guest:guest@localhost:5672/)
 //
-// Variable d'environnement optionnelle :
+// Variables d'environnement optionnelles :
 //
-//	CORE_PROCESSOR_QUEUE — nom de la queue RabbitMQ consommee (defaut : "core-processor").
+//	CORE_PROCESSOR_QUEUE      — nom de la queue RabbitMQ consommee (defaut : "core-processor").
+//	WEBHOOK_RETRY_INTERVAL    — intervalle du ticker webhook_retry_scheduler.go
+//	                            (D-M43, format time.ParseDuration, defaut : "30s").
 //
 // Si une variable requise est absente, si une connexion echoue, si la
 // topologie AMQP ne peut pas etre declaree, ou si la consommation se termine
@@ -19,20 +21,22 @@
 // NUL (voir run(), E9 correctif Phase 3 — avant ce correctif, ces chemins
 // retournaient un exit code 0 implicite, indiscernable d'un arret volontaire).
 //
-// Arret gracieux : le contexte racine (goapp.Context) est annule sur
-// SIGINT/SIGTERM ; Consume() surveille ce meme contexte (select sur ctx.Done())
-// et retourne des que le message AMQP en cours de traitement est termine —
-// contrairement au serveur HTTP de src/api (D-M07, qui utilise
-// http.Server.Shutdown avec un delai de drain explicite pour laisser des
-// requetes CONCURRENTES en cours se terminer), ce worker traite les
-// deliveries de facon strictement sequentielle (une seule goroutine de
-// consommation) : il n'y a jamais qu'un seul message "en vol", donc aucun
-// delai de drain supplementaire n'est necessaire — la boucle s'arrete des que
-// le message courant (s'il y en a un) est acquitte/rejete.
+// Arret gracieux COORDONNE (D-M43 — avant ce correctif, Consume() etait la
+// SEULE goroutine de ce composition root ; le scheduler de retry webhook en
+// ajoute une seconde, sur le modele de cmd/intelligence-processor/main.go) :
+// le contexte racine (goapp.Context) est annule sur SIGINT/SIGTERM ; Consume()
+// ET RunWebhookRetryScheduler surveillent CE MEME contexte. run() attend la
+// fin des deux goroutines (WaitGroup) avant de rendre la main — si Consume()
+// retourne une erreur reelle, le contexte racine est annule EXPLICITEMENT
+// (meme motif que intelligence-processor, E9) pour que le ticker de retry ne
+// reste jamais actif seul (worker "zombie" qui ne consommerait plus mais
+// continuerait de retenter des webhooks indefiniment).
 package main
 
 import (
 	"os"
+	"sync"
+	"time"
 
 	coreprocessor "fleece/src/core-processor"
 	goamqp "fleece/src/go/amqp"
@@ -102,6 +106,9 @@ func run() int {
 	// Queue consommee — configurable, defaut "core-processor" (voir Service.Init).
 	queue := os.Getenv("CORE_PROCESSOR_QUEUE")
 
+	// Intervalle du scheduler de retry webhook (D-M43) — defaut 30s.
+	webhookRetryInterval := parseDurationEnv(logger, "WEBHOOK_RETRY_INTERVAL", 30*time.Second)
+
 	// Composition root : injection manuelle des dependances dans Service
 	// (meme pattern que src/api/cmd/api/main.go — pas de zconfig ici, DI
 	// manuelle explicite).
@@ -141,7 +148,19 @@ func run() int {
 		return 1
 	}
 
-	logger.Info("core-processor: ready", "queue", svc.Queue)
+	logger.Info("core-processor: ready", "queue", svc.Queue, "webhook_retry_interval", webhookRetryInterval.String())
+
+	// D-M43 — demarrage du ticker de retry webhook en goroutine, AVANT
+	// Consume() (l'ordre n'a pas d'importance fonctionnelle : les deux
+	// surveillent le meme ctx et ne s'inter-bloquent jamais). Meme motif que
+	// cmd/intelligence-processor/main.go (RunCampaignScheduler/
+	// RunAnalyticsRefresh) : arret gracieux coordonne via WaitGroup.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		svc.RunWebhookRetryScheduler(ctx, webhookRetryInterval)
+	}()
 
 	// Consume bloque jusqu'a annulation de ctx (SIGINT/SIGTERM, retourne alors
 	// nil — arret gracieux volontaire) ou jusqu'a une erreur reelle (ex. queue
@@ -153,11 +172,48 @@ func run() int {
 	// volontaire pour Kubernetes (restartPolicy) ou tout operateur lisant
 	// `echo $?`. Le worker mourait "proprement en apparence" alors qu'il
 	// n'avait jamais traite un seul message. CORRECTIF : exit code 1.
+	exitCode := 0
 	if err := svc.Consume(ctx); err != nil {
 		logger.Error("core-processor: consume error", "err", err)
-		return 1
+		exitCode = 1
+		// D-M43 : annuler EXPLICITEMENT le contexte racine pour que le ticker
+		// de retry webhook (qui ne surveille QUE ctx, jamais l'erreur de
+		// Consume) recoive le meme signal d'arret et se termine — sans cela,
+		// wg.Wait() ci-dessous ne rendrait jamais la main (meme "worker
+		// zombie" que E9 sur intelligence-processor : processus vivant, mais
+		// plus aucun message AMQP consomme).
+		cancel()
+	}
+
+	// Arret gracieux coordonne : attendre la fin du ticker de retry (qui
+	// surveille le meme ctx, desormais annule dans tous les cas — SIGINT/
+	// SIGTERM ou l'annulation explicite ci-dessus) avant de sortir.
+	wg.Wait()
+
+	if exitCode != 0 {
+		logger.Error("core-processor: shutdown apres erreur (consume)", "exit_code", exitCode)
+		return exitCode
 	}
 
 	logger.Info("core-processor: shutdown complete")
 	return 0
+}
+
+// parseDurationEnv lit une variable d'environnement au format
+// time.ParseDuration ; retourne def si absente ou invalide (avec un log WARN
+// dans ce dernier cas — une valeur mal formee ne doit jamais empecher le
+// worker de demarrer). Copie de cmd/intelligence-processor/main.go (meme
+// motif, deux binaires distincts — pas de lib partagee pour ~10 lignes).
+func parseDurationEnv(logger *golog.Logger, key string, def time.Duration) time.Duration {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return def
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		logger.Warn("core-processor: valeur invalide pour variable d'environnement, defaut utilise",
+			"key", key, "value", raw, "err", err)
+		return def
+	}
+	return d
 }

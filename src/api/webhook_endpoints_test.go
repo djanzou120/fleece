@@ -119,6 +119,303 @@ func TestHandleCreateWebhookEndpoint_noEvents(t *testing.T) {
 }
 
 // ============================================================
+// D-M44 — validation HTTPS de l'URL (DASH-04)
+// ============================================================
+
+func TestHandleCreateWebhookEndpoint_httpURL_rejected(t *testing.T) {
+	svc := newTestService()
+	payload := map[string]any{
+		"workspace_id": validWalletUUID,
+		"url":          "http://example.com/hook",
+		"events":       []string{"message.delivered"},
+	}
+	req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+	rr := httptest.NewRecorder()
+
+	svc.HandleCreateWebhookEndpoint(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("code = %d, voulu %d (url http:// non-localhost rejetee, D-M44)", rr.Code, http.StatusBadRequest)
+	}
+	assertJSONError(t, rr)
+}
+
+func TestHandleCreateWebhookEndpoint_malformedURL_rejected(t *testing.T) {
+	svc := newTestService()
+	payload := map[string]any{
+		"workspace_id": validWalletUUID,
+		"url":          "ceci n'est pas une url",
+		"events":       []string{"message.delivered"},
+	}
+	req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+	rr := httptest.NewRecorder()
+
+	svc.HandleCreateWebhookEndpoint(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("code = %d, voulu %d (url syntaxiquement invalide)", rr.Code, http.StatusBadRequest)
+	}
+	assertJSONError(t, rr)
+}
+
+func TestHandleCreateWebhookEndpoint_httpsURL_accepted(t *testing.T) {
+	conn := &fakeConn{execFn: func(query string, args []driver.NamedValue) (driver.Result, error) {
+		return fakeExecResult{rows: 1}, nil
+	}}
+	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: golog.Init("warn", "text")}
+
+	payload := map[string]any{
+		"workspace_id": validWalletUUID,
+		"url":          "https://example.com/hook",
+		"events":       []string{"message.delivered"},
+	}
+	req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+	rr := httptest.NewRecorder()
+
+	svc.HandleCreateWebhookEndpoint(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("code = %d, voulu %d (url https:// acceptee) : %s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+}
+
+// E5 (revue architecture Phase 3 / D-M43) : l'exemption localhost/127.0.0.1
+// est désormais conditionnée à un environnement NON-PRODUCTION
+// (Service.Env/FLEECE_ENV) — voir isNonProductionEnv.
+func TestHandleCreateWebhookEndpoint_httpLocalhostExemption_accepted(t *testing.T) {
+	cases := []string{
+		"http://localhost/hook",
+		"http://localhost:3000/hook",
+		"http://127.0.0.1/hook",
+		"http://127.0.0.1:8080/hook",
+	}
+	for _, u := range cases {
+		t.Run(u, func(t *testing.T) {
+			conn := &fakeConn{execFn: func(query string, args []driver.NamedValue) (driver.Result, error) {
+				return fakeExecResult{rows: 1}, nil
+			}}
+			svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: golog.Init("warn", "text"), Env: "development"}
+
+			payload := map[string]any{
+				"workspace_id": validWalletUUID,
+				"url":          u,
+				"events":       []string{"message.delivered"},
+			}
+			req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+			rr := httptest.NewRecorder()
+
+			svc.HandleCreateWebhookEndpoint(rr, req)
+
+			if rr.Code != http.StatusCreated {
+				t.Fatalf("code = %d, voulu %d (exemption dev localhost/127.0.0.1, Env=development, D-M44/E5) : %s", rr.Code, http.StatusCreated, rr.Body.String())
+			}
+		})
+	}
+}
+
+// TestHandleCreateWebhookEndpoint_httpLocalhostExemption_rejectedInProduction
+// est LE test de non-régression E5 : sans Env explicitement positionné à une
+// valeur non-production (comportement par défaut, Service.Env==""), l'
+// exemption localhost/127.0.0.1 NE S'APPLIQUE PLUS — AVANT ce correctif, elle
+// s'appliquait inconditionnellement, y compris en production.
+func TestHandleCreateWebhookEndpoint_httpLocalhostExemption_rejectedInProduction(t *testing.T) {
+	cases := []string{"http://localhost/hook", "http://127.0.0.1/hook"}
+	for _, u := range cases {
+		t.Run(u, func(t *testing.T) {
+			svc := newTestService() // Env == "" (defaut, traite comme production)
+
+			payload := map[string]any{
+				"workspace_id": validWalletUUID,
+				"url":          u,
+				"events":       []string{"message.delivered"},
+			}
+			req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+			rr := httptest.NewRecorder()
+
+			svc.HandleCreateWebhookEndpoint(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, voulu %d (Env vide = production, exemption localhost DESACTIVEE par defaut, E5) : %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			assertJSONError(t, rr)
+		})
+	}
+}
+
+// ============================================================
+// E5 — anti-SSRF : IP littérales privées/loopback/link-local rejetées
+// ============================================================
+
+func TestHandleCreateWebhookEndpoint_privateIP_rejected(t *testing.T) {
+	cases := []string{
+		"https://169.254.169.254/latest/meta-data", // metadonnees cloud (link-local)
+		"https://10.0.0.5/hook",                    // RFC1918 privee
+		"https://172.16.0.5/hook",                  // RFC1918 privee
+		"https://192.168.1.5/hook",                 // RFC1918 privee
+		"https://0.0.0.0/hook",                     // unspecified
+		"https://[::1]/hook",                       // loopback IPv6
+		"https://[fe80::1]/hook",                   // link-local IPv6
+		"https://[fd00::1]/hook",                   // unique local IPv6 (IsPrivate())
+	}
+	for _, u := range cases {
+		t.Run(u, func(t *testing.T) {
+			svc := newTestService()
+
+			payload := map[string]any{
+				"workspace_id": validWalletUUID,
+				"url":          u,
+				"events":       []string{"message.delivered"},
+			}
+			req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+			rr := httptest.NewRecorder()
+
+			svc.HandleCreateWebhookEndpoint(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, voulu %d (IP litterale privee/loopback/link-local rejetee, E5 anti-SSRF) : %s", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+			assertJSONError(t, rr)
+		})
+	}
+}
+
+func TestHandleCreateWebhookEndpoint_publicIP_accepted(t *testing.T) {
+	conn := &fakeConn{execFn: func(query string, args []driver.NamedValue) (driver.Result, error) {
+		return fakeExecResult{rows: 1}, nil
+	}}
+	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: golog.Init("warn", "text")}
+
+	payload := map[string]any{
+		"workspace_id": validWalletUUID,
+		"url":          "https://8.8.8.8/hook",
+		"events":       []string{"message.delivered"},
+	}
+	req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+	rr := httptest.NewRecorder()
+
+	svc.HandleCreateWebhookEndpoint(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("code = %d, voulu %d (IP litterale PUBLIQUE acceptee, E5 ne bloque que privee/loopback/link-local) : %s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+}
+
+// ============================================================
+// E3 — validation des noms d'evenements (uniquement ceux reellement livres)
+// ============================================================
+
+func TestHandleCreateWebhookEndpoint_unknownEvent_rejected(t *testing.T) {
+	cases := []string{"message.created", "message.queued", "message.sent", "wallet.debited", "wallet.refunded", "not.a.real.event"}
+	for _, ev := range cases {
+		t.Run(ev, func(t *testing.T) {
+			svc := newTestService()
+
+			payload := map[string]any{
+				"workspace_id": validWalletUUID,
+				"url":          "https://example.com/hook",
+				"events":       []string{ev},
+			}
+			req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+			rr := httptest.NewRecorder()
+
+			svc.HandleCreateWebhookEndpoint(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, voulu %d (evenement %q non livrable, E3) : %s", rr.Code, http.StatusBadRequest, ev, rr.Body.String())
+			}
+			assertJSONError(t, rr)
+		})
+	}
+}
+
+func TestHandleCreateWebhookEndpoint_deliverableEvents_accepted(t *testing.T) {
+	conn := &fakeConn{execFn: func(query string, args []driver.NamedValue) (driver.Result, error) {
+		return fakeExecResult{rows: 1}, nil
+	}}
+	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: golog.Init("warn", "text")}
+
+	payload := map[string]any{
+		"workspace_id": validWalletUUID,
+		"url":          "https://example.com/hook",
+		"events":       []string{"message.delivered", "message.failed"},
+	}
+	req := jsonRequest(t, http.MethodPost, "/webhook-endpoints", payload)
+	rr := httptest.NewRecorder()
+
+	svc.HandleCreateWebhookEndpoint(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("code = %d, voulu %d (les 2 evenements reellement livrables acceptes, E3) : %s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+}
+
+func TestValidateWebhookURL(t *testing.T) {
+	cases := []struct {
+		url     string
+		env     string
+		wantErr bool
+	}{
+		{"https://example.com/hook", "", false},
+		{"https://example.com", "", false},
+		{"http://example.com/hook", "", true},
+		{"http://sub.example.com/hook", "", true},
+		// Exemption localhost : uniquement hors production (E5).
+		{"http://localhost/hook", "", true},
+		{"http://localhost/hook", "development", false},
+		{"http://localhost:3000/hook", "development", false},
+		{"http://127.0.0.1/hook", "", true},
+		{"http://127.0.0.1/hook", "development", false},
+		{"http://127.0.0.1:8080/hook", "dev", false},
+		{"http://0.0.0.0/hook", "development", true}, // exemption volontairement etroite (voir isLocalhostExemption)
+		{"http://[::1]/hook", "development", true},   // idem : IPv6 loopback non exempte
+		{"ftp://example.com/hook", "", true},
+		{"not-a-url", "", true},
+		{"", "", true},
+		// E5 — anti-SSRF (IP litterales privees/loopback/link-local, meme en HTTPS).
+		{"https://169.254.169.254/meta", "", true},
+		{"https://10.0.0.5/hook", "", true},
+		{"https://172.16.0.5/hook", "", true},
+		{"https://192.168.1.5/hook", "", true},
+		{"https://[::1]/hook", "", true},
+		{"https://[fe80::1]/hook", "", true},
+		{"https://8.8.8.8/hook", "", false}, // IP litterale PUBLIQUE : acceptee
+	}
+	for _, tc := range cases {
+		t.Run(tc.url+"/env="+tc.env, func(t *testing.T) {
+			err := validateWebhookURL(tc.url, tc.env)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateWebhookURL(%q, %q) erreur = %v, wantErr %v", tc.url, tc.env, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsNonProductionEnv(t *testing.T) {
+	cases := []struct {
+		env  string
+		want bool
+	}{
+		{"", false},
+		{"production", false},
+		{"PRODUCTION", false},
+		{"anything-else", false},
+		{"development", true},
+		{"dev", true},
+		{"test", true},
+		{"local", true},
+		{"DEVELOPMENT", true},
+		{"  dev  ", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.env, func(t *testing.T) {
+			if got := isNonProductionEnv(tc.env); got != tc.want {
+				t.Errorf("isNonProductionEnv(%q) = %v, voulu %v", tc.env, got, tc.want)
+			}
+		})
+	}
+}
+
+// ============================================================
 // Chemin DB réel — POST /webhook-endpoints
 // ============================================================
 

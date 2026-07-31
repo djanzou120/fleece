@@ -49,15 +49,30 @@ import type {
 import { formatDate } from '@/lib/utils';
 import { useWorkspaceId } from '@/lib/context/WorkspaceContext';
 
-/* Available webhook event types (from API-03 / TDD §4.6) */
+/*
+ * Available webhook event types.
+ *
+ * CORRECTIF (revue architecture Phase 3 / D-M43, E3) : cette liste doit être
+ * strictement alignée sur ce que l'API accepte réellement — voir
+ * src/api/webhook_endpoints_create.go (validWebhookEvents / validateWebhookEvents,
+ * ~l.305-321), qui rejette en 400 tout événement absent de cette map. Ces deux
+ * événements sont aussi les deux SEULS que core-processor livre effectivement
+ * (src/core-processor/webhook_dispatch.go, fanOutWebhookEvent ;
+ * src/core-processor/consumer.go, routingKeyHandlers).
+ *
+ * Les 5 événements précédemment proposés ici (message.created, message.queued,
+ * message.sent, wallet.debited, wallet.refunded) ont été retirés — pas
+ * "désactivés + bientôt disponible" — car aucune roadmap engagée ne garantit
+ * leur livraison ; les afficher désactivés aurait laissé croire à une
+ * disponibilité prochaine non confirmée. Avant ce correctif, les cocher
+ * produisait un 201 trompeur suivi d'un silence total (aucune livraison), puis
+ * — depuis le durcissement serveur — un 400 à la création. Si core-processor
+ * apprend à livrer d'autres événements, ajoutez-les ICI en même temps que dans
+ * validWebhookEvents côté serveur.
+ */
 const AVAILABLE_EVENTS = [
-  { value: 'message.created',   label: 'message.created' },
-  { value: 'message.queued',    label: 'message.queued' },
-  { value: 'message.sent',      label: 'message.sent' },
   { value: 'message.delivered', label: 'message.delivered' },
   { value: 'message.failed',    label: 'message.failed' },
-  { value: 'wallet.debited',    label: 'wallet.debited' },
-  { value: 'wallet.refunded',   label: 'wallet.refunded' },
 ];
 
 /* --------------------------------------------------------------------------- */
@@ -551,7 +566,7 @@ export default function WebhooksPage() {
             {!loading && !fetchError && endpoints.length === 0 && (
               <EmptyState
                 title="Aucun endpoint configuré"
-                description="Ajoutez un endpoint webhook HTTPS pour recevoir les événements de messages et de wallet en temps réel."
+                description="Ajoutez un endpoint webhook HTTPS pour recevoir les événements de livraison de messages (message.delivered, message.failed) en temps réel."
                 action={{ label: '+ Ajouter un endpoint', onClick: () => setAddModalOpen(true) }}
                 icon="↗"
               />

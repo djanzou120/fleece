@@ -25,6 +25,7 @@ import (
 	"errors"
 	"io"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -87,7 +88,19 @@ type execStep struct {
 // programme pour un appel donne, retombe sur un comportement par defaut
 // (0 ligne / rows vides) plutot que de paniquer — pratique pour les tests qui
 // ne s'interessent qu'a une partie de la sequence.
+//
+// mu (D-M43) : les handlers webhook (webhook_dispatch.go/
+// webhook_retry_scheduler.go) font un fan-out CONCURRENT borne (syncx.Map)
+// vers plusieurs endpoints — plusieurs goroutines peuvent donc appeler
+// ExecContext/QueryContext sur CE MEME fakeConn simultanement (database/sql
+// peut aussi ouvrir plusieurs "connexions" logiques, qui pointent toutes vers
+// le meme *fakeConn, cf. fakeDriverImpl.Open ci-dessous). Sans mutex, ces
+// acces concurrents aux slices queries/args et aux compteurs queryPos/execPos
+// seraient une data race. Aucun test existant (sequentiel) n'est affecte : le
+// mutex est un no-op de performance negligeable dans ce cas.
 type fakeConn struct {
+	mu sync.Mutex
+
 	querySteps []queryStep
 	execSteps  []execStep
 	queryPos   int
@@ -124,6 +137,9 @@ func (c *fakeConn) Begin() (driver.Tx, error) {
 }
 
 func (c *fakeConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.queries = append(c.queries, query)
 	c.args = append(c.args, args)
 
@@ -136,6 +152,9 @@ func (c *fakeConn) ExecContext(_ context.Context, query string, args []driver.Na
 }
 
 func (c *fakeConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.queries = append(c.queries, query)
 	c.args = append(c.args, args)
 

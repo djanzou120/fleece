@@ -59,12 +59,21 @@ func TestHandleMessageFailed_costNull(t *testing.T) {
 		t.Fatalf("handleMessageFailed() erreur inattendue (cost NULL) : %v", err)
 	}
 
-	if len(conn.queries) != 1 {
-		t.Fatalf("nombre de requetes = %d, voulu 1 (aucun remboursement attendu) : %+v", len(conn.queries), conn.queries)
+	// D-M43 (fan-out webhooks sortants) : depuis rows == 1 (transition
+	// reellement appliquee), une 2e requete est desormais emise APRES le
+	// commit — chargement des endpoints abonnes a "message.failed"
+	// (webhook_dispatch.go, loadSubscribedWebhookEndpoints). workspace_id est
+	// REUTILISE depuis le RETURNING ci-dessus (queries[0]), jamais une
+	// deuxieme lecture de messaging.messages.
+	if len(conn.queries) != 2 {
+		t.Fatalf("nombre de requetes = %d, voulu 2 (transition + fan-out webhook, aucun remboursement attendu) : %+v", len(conn.queries), conn.queries)
 	}
 	if !strings.Contains(conn.queries[0], "UPDATE messaging.messages") ||
 		!strings.Contains(conn.queries[0], "RETURNING workspace_id, cost") {
 		t.Fatalf("requete SQL inattendue : %q", conn.queries[0])
+	}
+	if !strings.Contains(conn.queries[1], "FROM webhook.webhook_endpoints") {
+		t.Fatalf("2e requete inattendue (fan-out webhook) : %q", conn.queries[1])
 	}
 	if conn.commitCount != 1 {
 		t.Fatalf("commitCount = %d, voulu 1", conn.commitCount)
@@ -87,8 +96,10 @@ func TestHandleMessageFailed_costZero(t *testing.T) {
 	if err := handleMessageFailed(context.Background(), svc, evt); err != nil {
 		t.Fatalf("handleMessageFailed() erreur inattendue (cost=0) : %v", err)
 	}
-	if len(conn.queries) != 1 {
-		t.Fatalf("nombre de requetes = %d, voulu 1 (aucun remboursement attendu)", len(conn.queries))
+	// D-M43 : voir TestHandleMessageFailed_costNull — 2e requete = fan-out
+	// webhook (rows == 1), aucun remboursement.
+	if len(conn.queries) != 2 {
+		t.Fatalf("nombre de requetes = %d, voulu 2 (transition + fan-out webhook, aucun remboursement attendu)", len(conn.queries))
 	}
 }
 
@@ -116,9 +127,11 @@ func TestHandleMessageFailed_costPositive_refund(t *testing.T) {
 
 	// c.queries/c.args capturent Query ET Exec dans l'ordre chronologique :
 	// [0] UPDATE messaging.messages RETURNING (Query), [1] UPDATE wallet.wallets
-	// RETURNING (Query), [2] INSERT wallet_transactions (Exec).
-	if len(conn.queries) != 3 {
-		t.Fatalf("nombre total de requetes = %d, voulu 3 (messages + wallets + ledger) : %+v", len(conn.queries), conn.queries)
+	// RETURNING (Query), [2] INSERT wallet_transactions (Exec), [3] fan-out
+	// webhook (D-M43, APRES commit — chargement des endpoints abonnes a
+	// "message.failed", voir webhook_dispatch.go).
+	if len(conn.queries) != 4 {
+		t.Fatalf("nombre total de requetes = %d, voulu 4 (messages + wallets + ledger + fan-out webhook) : %+v", len(conn.queries), conn.queries)
 	}
 	if !strings.Contains(conn.queries[0], "UPDATE messaging.messages") {
 		t.Fatalf("1ere requete inattendue : %q", conn.queries[0])
@@ -261,4 +274,31 @@ func TestHandleMessageFailed_beginError(t *testing.T) {
 	// jamais d'erreur) : documente comme non couvert (voir rapport final,
 	// section "ce que les tests ne couvrent pas").
 	t.Skip("fakeConn.Begin() ne simule pas d'echec — non couvert, voir rapport final")
+}
+
+// TestHandleMessageFailed_rows0_neverFansOutWebhook est LE test de
+// non-regression B1/D-M26 applique au volet webhook (D-M43), symetrique de
+// TestHandleMessageDelivered_rows0_neverFansOutWebhook : quand l'UPDATE
+// messaging.messages ne transitionne AUCUNE ligne (statut terminal deja
+// atteint, rejeu Telegram — D-M25), NI le remboursement NI le fan-out
+// webhook ne doivent se declencher. On le prouve en verifiant qu'une SEULE
+// requete (l'UPDATE lui-meme) est emise sur toute l'execution du handler —
+// aucune requete de credit wallet, aucune requete de selection d'endpoints
+// webhook.
+func TestHandleMessageFailed_rows0_neverFansOutWebhook(t *testing.T) {
+	conn := &fakeConn{
+		querySteps: []queryStep{
+			{rows: fakeRowsOfCols([]string{"workspace_id", "cost"})}, // 0 ligne
+		},
+	}
+	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: testLogger()}
+
+	evt := messageEvent{MessageID: testMessageID}
+	if err := handleMessageFailed(context.Background(), svc, evt); err != nil {
+		t.Fatalf("handleMessageFailed() erreur inattendue : %v", err)
+	}
+
+	if len(conn.queries) != 1 {
+		t.Fatalf("nombre de requetes = %d, voulu EXACTEMENT 1 (rows == 0 -> AUCUN remboursement, AUCUN fan-out webhook) : %+v", len(conn.queries), conn.queries)
+	}
 }

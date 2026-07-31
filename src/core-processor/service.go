@@ -12,6 +12,8 @@
 package coreprocessor
 
 import (
+	"net/http"
+
 	goamqp "fleece/src/go/amqp"
 	golog "fleece/src/go/log"
 	gosql "fleece/src/go/sql"
@@ -35,6 +37,13 @@ type Service struct {
 	// variable d'environnement CORE_PROCESSOR_QUEUE (voir cmd/core-processor/main.go).
 	// Defaut : "core-processor".
 	Queue string
+
+	// WebhookHTTPClient est le client HTTP utilise pour livrer les webhooks
+	// sortants (D-M43, webhook_dispatch.go/webhook_retry_scheduler.go).
+	// Defaut (Init()) : timeout 10s, voir defaultWebhookHTTPClient()
+	// (webhook_dispatch.go). Injectable explicitement par les tests pour
+	// exercer un timeout court sans attendre 10 secondes reelles.
+	WebhookHTTPClient *http.Client
 }
 
 // Init verifie que les dependances obligatoires sont presentes et applique
@@ -43,6 +52,9 @@ type Service struct {
 func (s *Service) Init() error {
 	if s.Queue == "" {
 		s.Queue = "core-processor"
+	}
+	if s.WebhookHTTPClient == nil {
+		s.WebhookHTTPClient = defaultWebhookHTTPClient()
 	}
 	return nil
 }
