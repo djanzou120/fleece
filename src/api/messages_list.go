@@ -15,19 +15,36 @@ const (
 
 // HandleListMessages traite GET /messages?workspace_id=&status=&limit=&offset=
 //
-// Tous les filtres sont optionnels. Les resultats sont tries par created_at DESC.
-// limit est borne a [1, 200] (defaut 50). offset defaut = 0.
+// `workspace_id` est REQUIS ; les autres filtres sont optionnels. Les resultats
+// sont tries par created_at DESC. limit est borne a [1, 200] (defaut 50).
+// offset defaut = 0.
+//
+// CORRECTIF D-M41 (2e occurrence, PLUS GRAVE QUE CELLE DECRITE PAR LA DETTE) —
+// `workspace_id` etait OPTIONNEL ici : l'appeler SANS ce parametre retournait
+// les messages de TOUS LES WORKSPACES CONFONDUS (jusqu'a maxLimit=200 lignes,
+// contenu et destinataires compris), en une seule requete et sans rien avoir a
+// deviner. La dette D-M41 ne mentionnait que GET /messages/{id}, qui exige au
+// moins de connaitre un UUID ; cette variante-ci est une fuite EN MASSE, et le
+// filtre dynamique de buildListQuery la rendait invisible a la lecture (aucun
+// `WHERE workspace_id` n'apparait dans le code quand le parametre est vide).
+//
+// Le parametre est donc desormais REQUIS (400 s'il manque), comme sur
+// /webhook-endpoints (D-M40) et sur GET /messages/{id}. Sans impact sur les
+// appelants connus : le seul client, src/graphql-api/adapters/clients/
+// messaging.client.ts, transmet deja systematiquement workspace_id.
 func (s *Service) HandleListMessages(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 
-	// Parametre workspace_id (optionnel mais si fourni doit etre un UUID valide).
+	// Parametre workspace_id : REQUIS (frontiere de securite, voir doc ci-dessus).
 	workspaceID := q.Get("workspace_id")
-	if workspaceID != "" {
-		if _, err := parseUUID(workspaceID); err != nil {
-			writeError(w, http.StatusBadRequest, "workspace_id : format UUID invalide")
-			return
-		}
+	if workspaceID == "" {
+		writeError(w, http.StatusBadRequest, "workspace_id est requis")
+		return
+	}
+	if _, err := parseUUID(workspaceID); err != nil {
+		writeError(w, http.StatusBadRequest, "workspace_id : format UUID invalide")
+		return
 	}
 
 	// Parametre status (optionnel, pas de validation stricte — filtre dynamique).
@@ -78,19 +95,23 @@ func (s *Service) HandleListMessages(w http.ResponseWriter, r *http.Request) {
 
 // buildListQuery construit la requete SELECT avec les filtres optionnels.
 // Retourne la requete SQL et les arguments positionnels associes.
+//
+// D-M41 : le filtre workspace_id est INCONDITIONNEL — il fait partie de la
+// clause WHERE de base, il n'est plus ajoute « si le parametre est non vide ».
+// C'est deliberé : un filtre de securite conditionnel disparait SILENCIEUSEMENT
+// du SQL quand l'appelant omet la valeur, et rien dans le code ne signale
+// l'absence de frontiere. En le rendant structurel, appeler cette fonction avec
+// un workspaceID vide produit une requete qui ne matche RIEN (comportement sur
+// et visible), au lieu de tout retourner.
 func buildListQuery(workspaceID, status string, limit, offset int) (string, []any) {
 	base := `SELECT id, workspace_id, recipient, content, status, channel, created_at
 	           FROM messaging.messages
-	          WHERE 1=1`
+	          WHERE workspace_id = $1`
 
 	args := make([]any, 0, 4)
-	idx := 1 // compteur de placeholder $N
+	args = append(args, workspaceID)
+	idx := 2 // compteur de placeholder $N ($1 = workspace_id)
 
-	if workspaceID != "" {
-		base += fmt.Sprintf(" AND workspace_id = $%d", idx)
-		args = append(args, workspaceID)
-		idx++
-	}
 	if status != "" {
 		base += fmt.Sprintf(" AND status = $%d", idx)
 		args = append(args, status)

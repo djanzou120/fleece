@@ -1,0 +1,48 @@
+-- Service: Campaign (schéma "campaign") — D-M33 : index sur campaign_recipients.message_id
+-- Migration STRICTEMENT additive : CREATE INDEX IF NOT EXISTS uniquement.
+-- Aucune colonne modifiée, supprimée ou renommée. 0016_campaign_execution.sql
+-- N'EST PAS modifiée.
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- POURQUOI
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- src/intelligence-processor/campaign_correlation.go exécute, DANS LA
+-- TRANSACTION de CHAQUE événement message.delivered / message.failed :
+--
+--     UPDATE campaign.campaign_recipients SET status = $1
+--      WHERE message_id = $2 AND status NOT IN ('delivered', 'failed')
+--   RETURNING campaign_id
+--
+-- Or les seuls index de la table (0016) sont :
+--     idx_campaign_recipients_campaign_status  (campaign_id, status)
+--     — plus la contrainte d'unicité (campaign_id, recipient)
+--
+-- Aucun ne peut servir un prédicat portant sur `message_id` seul : PostgreSQL
+-- retombe donc sur un **seq scan complet de campaign_recipients à chaque DLR**.
+-- Deux conséquences, toutes deux aggravées par le volume :
+--   1. Le coût par événement croît linéairement avec le nombre total de
+--      destinataires jamais enregistrés, pas avec le travail réellement utile.
+--   2. Le scan se déroule à l'intérieur d'une transaction qui écrit — les
+--      verrous sont donc tenus d'autant plus longtemps, et la contention monte
+--      quadratiquement quand plusieurs DLR arrivent en parallèle (le worker est
+--      concurrent).
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- POURQUOI UN INDEX PARTIEL
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- `message_id` est nullable (0016) et reste NULL pour tout destinataire dont le
+-- message n'a pas encore été émis — au lancement d'une grosse campagne, c'est
+-- la majorité des lignes. Le prédicat `WHERE message_id IS NOT NULL` exclut ces
+-- lignes de l'index : il reste plus petit, se maintient moins cher en écriture,
+-- et couvre malgré tout intégralement la requête ci-dessus, dont le prédicat
+-- `message_id = $2` implique `message_id IS NOT NULL`.
+--
+-- Pas d'index UNIQUE : rien ne garantit qu'un même message_id n'apparaisse pas
+-- deux fois (aucune contrainte du schéma ne l'interdit), et un UNIQUE
+-- transformerait une anomalie de données en échec d'écriture au moment du DLR.
+
+CREATE INDEX IF NOT EXISTS idx_campaign_recipients_message_id
+  ON campaign.campaign_recipients (message_id)
+  WHERE message_id IS NOT NULL;

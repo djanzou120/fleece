@@ -123,7 +123,16 @@ func TestMapProviderStatus(t *testing.T) {
 
 // ---- buildListQuery ----
 
-func TestBuildListQuery_noFilters(t *testing.T) {
+// TestBuildListQuery_workspaceFilterIsUnconditional remplace l'ancien
+// TestBuildListQuery_noFilters, qui vérifiait — et donc VERROUILLAIT — le
+// comportement non scopé : sans workspace_id, la requête ne portait AUCUN
+// filtre de workspace et retournait les messages de tous les workspaces
+// confondus. C'était la faille D-M41 (2e occurrence), pas une fonctionnalité.
+//
+// Le filtre est désormais STRUCTUREL : il appartient à la clause WHERE de base.
+// Un workspaceID vide produit donc une requête qui ne matche rien, au lieu de
+// tout retourner.
+func TestBuildListQuery_workspaceFilterIsUnconditional(t *testing.T) {
 	q, args := buildListQuery("", "", 50, 0)
 	if !strings.Contains(q, "FROM messaging.messages") {
 		t.Errorf("requete sans FROM messaging.messages : %q", q)
@@ -134,15 +143,25 @@ func TestBuildListQuery_noFilters(t *testing.T) {
 	if !strings.Contains(q, "LIMIT") || !strings.Contains(q, "OFFSET") {
 		t.Errorf("requete sans LIMIT/OFFSET : %q", q)
 	}
-	// Sans filtre : 2 args (limit + offset).
-	if len(args) != 2 {
-		t.Errorf("nombre d'args = %d, voulu 2", len(args))
+	// LE point du test : le filtre est present MEME avec un workspaceID vide.
+	if !strings.Contains(q, "WHERE workspace_id = $1") {
+		t.Fatalf("D-M41 : filtre workspace_id absent alors qu'il doit etre inconditionnel : %q", q)
 	}
-	if args[0] != 50 {
-		t.Errorf("args[0] (limit) = %v, voulu 50", args[0])
+	if strings.Contains(q, "WHERE 1=1") {
+		t.Errorf("D-M41 : la requete utilise encore le WHERE 1=1 qui rendait le scoping optionnel : %q", q)
 	}
-	if args[1] != 0 {
-		t.Errorf("args[1] (offset) = %v, voulu 0", args[1])
+	// 3 args : workspace_id (vide ici), limit, offset.
+	if len(args) != 3 {
+		t.Fatalf("nombre d'args = %d, voulu 3 (workspace_id + limit + offset)", len(args))
+	}
+	if args[0] != "" {
+		t.Errorf("args[0] (workspace_id) = %v, voulu la chaine vide passee en entree", args[0])
+	}
+	if args[1] != 50 {
+		t.Errorf("args[1] (limit) = %v, voulu 50", args[1])
+	}
+	if args[2] != 0 {
+		t.Errorf("args[2] (offset) = %v, voulu 0", args[2])
 	}
 }
 
@@ -179,14 +198,23 @@ func TestBuildListQuery_withAllFilters(t *testing.T) {
 	}
 }
 
+// D-M41 : le status n'est plus jamais le PREMIER placeholder — $1 est
+// desormais reserve a workspace_id, qui est structurel. Ce test verifiait
+// auparavant `status = $1`, c'est-a-dire une requete SANS scoping.
 func TestBuildListQuery_withStatusOnly(t *testing.T) {
 	q, args := buildListQuery("", "failed", 50, 0)
-	if !strings.Contains(q, "status = $1") {
-		t.Errorf("requete sans status filter (premier arg) : %q", q)
+	if !strings.Contains(q, "WHERE workspace_id = $1") {
+		t.Fatalf("D-M41 : filtre workspace_id absent : %q", q)
 	}
-	// 3 args : status, limit, offset.
-	if len(args) != 3 {
-		t.Errorf("nombre d'args = %d, voulu 3", len(args))
+	if !strings.Contains(q, "status = $2") {
+		t.Errorf("requete sans status filter en $2 : %q", q)
+	}
+	// 4 args : workspace_id, status, limit, offset.
+	if len(args) != 4 {
+		t.Fatalf("nombre d'args = %d, voulu 4 (workspace_id + status + limit + offset)", len(args))
+	}
+	if args[1] != "failed" {
+		t.Errorf("args[1] (status) = %v, voulu failed", args[1])
 	}
 }
 

@@ -10,11 +10,14 @@
 //     curseur opaque côté Go. Le nom du paramètre est `workspace_id` (snake_case), pas
 //     `workspaceId` — écart corrigé M-025 (l'ancien appel envoyait le mauvais nom, silencieusement
 //     ignoré par un service Go qui n'existe plus de toute façon).
-//   - GET /messages/{id} → objet RawMessage unique, 404 si absent. Le handler NE FILTRE PAS
-//     par workspace (pas de paramètre `workspace_id` consommé) : `?workspaceId=...` était donc
-//     déjà inopérant contre l'ancien service et reste inopérant contre src/api. Signalé au PM
-//     (D-M25-1) : un workspace peut actuellement lire un message d'un autre workspace par id
-//     via ce chemin — hors périmètre TS, à trancher côté `src/api`.
+//     `workspace_id` est désormais REQUIS (400 sans lui) : l'appeler sans ce paramètre
+//     retournait auparavant les messages de TOUS les workspaces confondus (D-M41).
+//   - GET /messages/{id}?workspace_id=  → objet RawMessage unique, 404 si absent.
+//     `workspace_id` est REQUIS et le handler FILTRE dessus (correctif D-M41).
+//     Auparavant la requête était `WHERE id = $1` seul : connaître un UUID de message
+//     suffisait à lire celui d'un autre workspace, et ce client recevait donc un
+//     `workspaceId` qu'il ignorait délibérément. Un message d'un autre workspace renvoie
+//     404, indistinguable d'un message inexistant (404 uniforme, anti-énumération).
 //   - messageRow (Go) n'a PAS de colonne `updated_at` (migration 0003) : MessageDTO.updatedAt
 //     est donc approximé par `created_at` ci-dessous (divergence de contrat signalée, pas
 //     de solution "sûre" possible sans migration côté Go — D-M25-2).
@@ -151,7 +154,10 @@ export class MessagingRestClient implements MessagingClient {
     //   src/api ne connaît que limit/offset (pas de curseur, borné à 200) : on demande le
     //   maximum autorisé côté backend et on pagine par curseur CÔTÉ BFF sur le résultat,
     //   même pattern que WalletRestClient.listTransactions (voir en-tête, D-M25-3).
-    const params = new URLSearchParams({ workspace_id: workspaceId, limit: "200" });
+    const params = new URLSearchParams({
+      workspace_id: workspaceId,
+      limit: "200",
+    });
 
     const rawResult = await request<RawMessage[]>(
       this.baseUrl,
@@ -171,17 +177,35 @@ export class MessagingRestClient implements MessagingClient {
 
   async getMessage(
     ctx: ApiContext,
-    _workspaceId: string,
+    workspaceId: string,
     id: string,
   ): Promise<MessageDTO | null> {
-    // TODO(production): GET {baseUrl}/messages/{id}
-    //   src/api/messages_get.go ne filtre PAS par workspace (voir en-tête, D-M25-1) :
-    //   `_workspaceId` n'est donc pas transmis en query (le backend ne le consommerait pas).
-    const raw = await request<RawMessage>(this.baseUrl, "GET", `/messages/${id}`, ctx);
+    // TODO(production): GET {baseUrl}/messages/{id}?workspace_id=...
+    //
+    // CORRECTIF D-M41 : `workspaceId` est désormais TRANSMIS, et le backend
+    // l'EXIGE (400 sans lui). Il était auparavant reçu puis délibérément ignoré
+    // (`_workspaceId`) parce que src/api/messages_get.go ne filtrait pas par
+    // workspace — connaître un UUID de message suffisait alors à lire celui
+    // d'un autre workspace. Le filtre existe maintenant côté serveur : ne pas
+    // revenir à un appel sans ce paramètre, il échouerait en 400.
+    //
+    // Un message appartenant à un autre workspace renvoie 404, exactement comme
+    // un message inexistant (404 uniforme, pour ne pas fuiter l'existence de
+    // l'identifiant) — donc `null` ici dans les deux cas, sans distinction
+    // possible côté BFF. C'est voulu.
+    const params = new URLSearchParams({ workspace_id: workspaceId });
+    const raw = await request<RawMessage>(
+      this.baseUrl,
+      "GET",
+      `/messages/${id}?${params.toString()}`,
+      ctx,
+    );
     return raw !== null ? mapRawMessage(raw) : null;
   }
 }
 
 // Assertion de conformité au port — erreur de compilation si l'interface diverge.
-const _conformance: MessagingClient = new MessagingRestClient("http://localhost:8080");
+const _conformance: MessagingClient = new MessagingRestClient(
+  "http://localhost:8080",
+);
 void _conformance;
