@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	golog "fleece/src/go/log"
 
@@ -42,6 +43,12 @@ type Conn struct {
 	// aucun changement de comportement pour un Conn construit sans ce champ,
 	// hormis le passage d'un Qos auparavant absent (illimité) à une valeur bornée.
 	Prefetch int `key:"prefetch"`
+	// PublishTimeout borne l'attente de confirmation d'une publication
+	// ([Conn.Publish], D-M34). Champ additif et rétrocompatible : 0 (valeur
+	// zéro, y compris pour tout appelant existant qui ne le renseigne pas)
+	// retombe sur [DefaultPublishTimeout]. Le seul changement de comportement
+	// est le passage d'une attente auparavant NON BORNÉE à une attente bornée.
+	PublishTimeout time.Duration `key:"publish_timeout"`
 
 	conn *amqp091.Connection
 }
@@ -84,16 +91,60 @@ func buildPersistentPublishing(body []byte) amqp091.Publishing {
 }
 
 // ErrPublishNotConfirmed est retournée par [Conn.Publish] quand le broker a
-// explicitement NACK la publication (ex. message unroutable envoyé à un
-// exchange sans queue liée qui le refuse, ressources indisponibles côté
-// broker...). Distincte d'une erreur de canal/réseau (retournée telle
+// explicitement NACK la publication (ressources indisponibles côté broker,
+// erreur interne...). Distincte d'une erreur de canal/réseau (retournée telle
 // quelle) : ErrPublishNotConfirmed signale que la publication A BIEN atteint
 // le broker, qui l'a explicitement rejetée.
+//
+// CORRECTION DE DOCUMENTATION (D-M35) — cette variable NE COUVRE PAS le cas
+// « message envoyé à un exchange sans queue liée », contrairement à ce que ce
+// commentaire affirmait. Avec mandatory=false, RabbitMQ **ACK** un message
+// non routable : il le jette et le confirme. C'est exactement pourquoi
+// mandatory vaut désormais true et pourquoi ce cas a son propre sentinel,
+// [ErrPublishUnroutable].
 var ErrPublishNotConfirmed = errors.New("goamqp: publication non confirmée par le broker (nack)")
 
+// ErrPublishUnroutable est retournée par [Conn.Publish] quand le broker a
+// RENVOYÉ le message parce qu'aucune queue ne correspondait à sa routing key
+// (basic.return, mandatory=true).
+//
+// CORRECTIF D-M35 — LE MESSAGE ÉTAIT SILENCIEUSEMENT DÉTRUIT. Avec
+// mandatory=false, un message non routable est ACK par le broker : Publish
+// retournait nil, l'appelant croyait la publication réussie, et l'événement
+// disparaissait sans une ligne de log. Le scénario n'était pas théorique :
+// src/api/cmd/api/main.go ne déclare QUE l'exchange, jamais les queues ni les
+// bindings (ceux-ci appartiennent aux workers). Si src/api démarrait avant le
+// premier lancement de core-processor, TOUS les DLR étaient détruits — et
+// depuis D-M26, la publication est la seule voie d'écriture du statut d'un
+// message : la perte aurait été totale et muette.
+var ErrPublishUnroutable = errors.New("goamqp: message non routable, renvoyé par le broker (aucune queue liée à cette routing key)")
+
+// DefaultPublishTimeout borne l'attente de confirmation d'une publication
+// (D-M34).
+//
+// SANS CETTE BORNE, Publish pouvait pendre INDÉFINIMENT : WaitContext n'a
+// d'autre sortie que le contexte fourni, et le contexte d'une requête HTTP
+// n'est annulé que si le client coupe. Or RabbitMQ, en alarme mémoire ou
+// disque, BLOQUE ses publishers — connexion TCP vivante, aucun ack, aucune
+// erreur. Tous les POST /messages restaient alors suspendus, là où ils
+// répondaient immédiatement avant l'introduction du mode confirm (D-M29).
+//
+// 5 secondes : largement au-dessus d'un aller-retour broker normal
+// (millisecondes), largement en dessous du WriteTimeout du serveur HTTP
+// (30 s, cf. src/api/cmd/api/main.go) pour que le handler ait le temps de
+// formater sa réponse d'erreur.
+const DefaultPublishTimeout = 5 * time.Second
+
 // Publish publie un message JSON sur l'exchange donné avec la routing key
-// indiquée. Un canal est ouvert puis fermé à chaque appel. Les flags
-// mandatory et immediate sont positionnés à false.
+// indiquée. Un canal est ouvert puis fermé à chaque appel.
+//
+// mandatory=true (D-M35) : un message qu'aucune queue ne peut recevoir est
+// RENVOYÉ par le broker et remonte en [ErrPublishUnroutable], au lieu d'être
+// acquitté puis jeté en silence. immediate reste à false (déprécié par
+// RabbitMQ, qui refuse la connexion s'il vaut true).
+//
+// L'attente de confirmation est BORNÉE par [Conn.PublishTimeout] (défaut
+// [DefaultPublishTimeout], D-M34) en plus du contexte de l'appelant.
 //
 // FIABILISATION (D-M29, Phase 3) — AVANT ce correctif, Publish n'utilisait ni
 // le mode confirm ni DeliveryMode: Persistent : ch.PublishWithContext renvoie
@@ -121,6 +172,16 @@ var ErrPublishNotConfirmed = errors.New("goamqp: publication non confirmée par 
 // à l'identique sur le chemin nominal (ack reçu -> nil, comme avant) ; seul le
 // chemin d'échec, auparavant silencieux, retourne désormais une erreur.
 func (c *Conn) Publish(ctx context.Context, exchange, key string, body []byte) error {
+	// D-M34 : borne dure de l'attente de confirmation, INDÉPENDANTE du contexte
+	// de l'appelant. Le ctx reçu reste respecté (annulation client, SIGTERM) —
+	// on ne fait qu'ajouter une échéance qu'il n'avait pas.
+	timeout := c.PublishTimeout
+	if timeout <= 0 {
+		timeout = DefaultPublishTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	ch, err := c.conn.Channel()
 	if err != nil {
 		return err
@@ -131,11 +192,17 @@ func (c *Conn) Publish(ctx context.Context, exchange, key string, body []byte) e
 		return fmt.Errorf("goamqp: publish: passage en mode confirm: %w", err)
 	}
 
+	// D-M35 : capter les basic.return AVANT de publier. Le broker émet le
+	// return avant l'ack, et le canal est fermé au retour de cette fonction —
+	// s'abonner après la publication laisserait une fenêtre de perte.
+	// Tampon de 1 : un seul message est publié par appel.
+	returns := ch.NotifyReturn(make(chan amqp091.Return, 1))
+
 	confirmation, err := ch.PublishWithDeferredConfirmWithContext(
 		ctx,
 		exchange,
 		key,
-		false, // mandatory
+		true,  // mandatory (D-M35) — sans cela, un message non routable est ACK puis jeté
 		false, // immediate
 		buildPersistentPublishing(body),
 	)
@@ -151,7 +218,21 @@ func (c *Conn) Publish(ctx context.Context, exchange, key string, body []byte) e
 	}
 
 	ok, err := confirmation.WaitContext(ctx)
-	return interpretConfirmation(ok, err)
+	if cerr := interpretConfirmation(ok, err); cerr != nil {
+		return cerr
+	}
+
+	// D-M35 : le message a été ACK — ce qui, avec mandatory=true, n'exclut PAS
+	// qu'il ait d'abord été renvoyé comme non routable. Le protocole garantit
+	// que le basic.return précède l'ack, donc à ce point la lecture non
+	// bloquante est suffisante : si un return existe, il est déjà là.
+	select {
+	case ret := <-returns:
+		return fmt.Errorf("%w (exchange=%q, routing_key=%q, code=%d, raison=%q)",
+			ErrPublishUnroutable, ret.Exchange, ret.RoutingKey, ret.ReplyCode, ret.ReplyText)
+	default:
+		return nil
+	}
 }
 
 // interpretConfirmation traduit le résultat de

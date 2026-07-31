@@ -18,8 +18,9 @@
 //	                     webhook-endpoint. Absente/vide = PRODUCTION (exemption désactivée,
 //	                     comportement le plus sûr par défaut).
 //
-// Si une variable requise est absente ou si la connexion échoue, le programme log et
-// retourne. En production, envisager os.Exit(1) à la place.
+// Si une variable requise est absente ou si la connexion échoue, le programme log
+// et sort en **code 1** (D-M39) — jamais 0, sans quoi Kubernetes prendrait un pod
+// non fonctionnel pour un arrêt volontaire et ne le redémarrerait pas.
 //
 // Arrêt gracieux : le contexte racine (goapp.Context) est annulé sur SIGINT/SIGTERM ;
 // le serveur HTTP est alors arrêté via http.Server.Shutdown avec un délai de drain
@@ -53,6 +54,27 @@ const shutdownTimeout = 10 * time.Second
 const fleeceExchange = "fleece"
 
 func main() {
+	os.Exit(run())
+}
+
+// run contient la logique de démarrage/exécution de ce composition root et
+// retourne le code de sortie du processus.
+//
+// CORRECTIF D-M39 — ISOLÉE de main(), même pattern que les deux workers (E9,
+// Phase 3). Avant ce correctif, chaque chemin fatal (POSTGRES_DSN absent,
+// Postgres injoignable, AMQP injoignable, DeclareExchange en échec, Init en
+// échec) faisait un simple `return` depuis main() : le processus sortait donc
+// avec le code **0**, c'est-à-dire « terminé normalement ». Kubernetes ne
+// redémarre pas un conteneur sorti en 0 avec restartPolicy=Always tant qu'il
+// considère l'arrêt volontaire — un pod non fonctionnel pouvait ainsi rester
+// en boucle CrashLoopBackOff silencieuse ou pire, être compté comme sain.
+//
+// Pourquoi run() plutôt qu'un os.Exit(1) direct sur chaque chemin : os.Exit
+// court-circuite TOUS les defer en attente, donc `defer db.Close()` et
+// `defer amqpConn.Close()` ne s'exécuteraient jamais sur les chemins d'erreur.
+// run() retourne un int ; main() n'appelle os.Exit qu'UNE fois, APRÈS que tous
+// les defer de run() se soient normalement déroulés à son retour.
+func run() int {
 	// Contexte racine : annulé sur SIGINT/SIGTERM.
 	ctx, cancel := goapp.Context()
 	defer cancel()
@@ -66,12 +88,12 @@ func main() {
 	postgresDSN := os.Getenv("POSTGRES_DSN")
 	if postgresDSN == "" {
 		logger.Error("api: POSTGRES_DSN is not set — cannot start")
-		return
+		return 1
 	}
 	db, err := gosql.Open(postgresDSN)
 	if err != nil {
 		logger.Error("api: postgres unavailable", "err", err)
-		return
+		return 1
 	}
 	defer db.Close()
 
@@ -79,7 +101,7 @@ func main() {
 	amqpDSN := os.Getenv("AMQP_DSN")
 	if amqpDSN == "" {
 		logger.Error("api: AMQP_DSN is not set — cannot start")
-		return
+		return 1
 	}
 	amqpConn := &goamqp.Conn{
 		DSN:    amqpDSN,
@@ -87,7 +109,7 @@ func main() {
 	}
 	if err := amqpConn.Init(); err != nil {
 		logger.Error("api: rabbitmq unavailable", "err", err)
-		return
+		return 1
 	}
 	defer amqpConn.Close()
 
@@ -104,7 +126,7 @@ func main() {
 	// divergence provoquerait un PRECONDITION_FAILED cote broker.
 	if err := amqpConn.DeclareExchange(fleeceExchange, "topic"); err != nil {
 		logger.Error("api: declaration exchange AMQP echouee", "exchange", fleeceExchange, "err", err)
-		return
+		return 1
 	}
 
 	// Providers : construction du registry depuis les variables d'environnement.
@@ -153,13 +175,29 @@ func main() {
 	}
 	if err := svc.Init(); err != nil {
 		logger.Error("api: service init failed", "err", err)
-		return
+		return 1
 	}
 
 	addr := ":8080"
+	// CORRECTIF D-M34 (volet serveur) — TIMEOUTS HTTP. Sans eux, le contexte
+	// d'une requête n'est annulé QUE si le client coupe la connexion : une
+	// requête dont le traitement pend (typiquement un Publish AMQP bloqué par
+	// une alarme mémoire/disque de RabbitMQ, qui bloque les publishers sans
+	// fermer le TCP) immobilise une goroutine et une connexion INDÉFINIMENT.
+	// Assez de requêtes dans cet état et le serveur cesse d'accepter du trafic
+	// alors qu'il paraît vivant. Ces timeouts donnent une borne dure, côté
+	// serveur, indépendante du comportement du client et des dépendances.
+	//
+	// WriteTimeout > le timeout de Publish (voir goamqp.Conn.PublishTimeout) :
+	// le handler doit pouvoir renvoyer proprement son erreur 5xx plutôt que de
+	// se faire couper au milieu par le serveur.
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: svc,
+		Addr:              addr,
+		Handler:           svc,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Démarrage du serveur HTTP dans une goroutine ; ListenAndServe bloque jusqu'à
@@ -173,7 +211,11 @@ func main() {
 	select {
 	case err := <-serveErr:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			// D-M39 : une erreur réseau fatale du serveur (port déjà pris,
+			// permissions) doit sortir en code non nul — le pod est
+			// irrécupérable, K8s doit le redémarrer.
 			logger.Error("api: server error", "err", err)
+			return 1
 		}
 	case <-ctx.Done():
 		// SIGINT/SIGTERM : arrêt gracieux avec délai de drain (D-M07 soldée).
@@ -186,4 +228,5 @@ func main() {
 			logger.Info("api: shutdown complete")
 		}
 	}
+	return 0
 }
