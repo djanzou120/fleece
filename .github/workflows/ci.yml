@@ -46,13 +46,20 @@ jobs:
       # compiles fine but silently produces a library archive, not a binary,
       # with exit code 0. mk/go.mk resolves this (see its own comment); this
       # step exists so a future regression to mk/go.mk is caught in CI, not
-      # discovered first at deploy time. `messaging` is built too as a
-      # non-regression check for the legacy (main.go at package root) layout
-      # mk/go.mk must keep supporting until M-023.
+      # discovered first at deploy time.
+      #
+      # M-023: `messaging` used to be built here too, as a non-regression
+      # check for the legacy "main.go at package root" layout mk/go.mk had to
+      # keep supporting. M-023 deleted the 8 pre-migration Go services, so
+      # that layout no longer exists anywhere in the repo and the entry was
+      # removed — leaving it would fail the build on a deleted directory.
+      # mk/go.mk's `gobuildpath` conditional still handles both layouts and
+      # is deliberately NOT simplified: src/bastion (type=docker) and any
+      # future single-package Go tool would use the flat layout.
       - name: Build production binaries (real entrypoints, mk/go.mk D-M09)
         run: |
           set -euo pipefail
-          for pkg in api core-processor intelligence-processor messaging; do
+          for pkg in api core-processor intelligence-processor; do
             make build pkg=$pkg
             # `file` confirms an actual executable was produced, not an `ar
             # archive` (the exact silent failure mode of D-M09).
@@ -73,12 +80,18 @@ jobs:
       # already set up above) + grep. It enforces the one boundary explicitly
       # called out by .ia/MIGRATION_PLAN.md (D-M20): neither worker may
       # depend on the unified HTTP service (workers must be deployable/
-      # scalable independently of it, see deploy/k8s/services/) or on any of
-      # the 8 pre-migration Go services the migration replaces.
+      # scalable independently of it, see deploy/k8s/services/).
+      #
+      # M-023: the 8 pre-migration Go services (messaging, routing, provider,
+      # wallet, webhook, contact-intelligence, campaign, analytics) were
+      # dropped from this pattern along with the directories themselves —
+      # `go list -deps` can never emit a package that does not exist, so
+      # keeping them would have been dead weight suggesting a boundary that
+      # is now enforced by their absence. `api` remains the one live rule.
       - name: Verify worker import boundaries (D-M20, depguard substitute)
         run: |
           set -euo pipefail
-          forbidden_pattern='^fleece/src/(api|messaging|routing|provider|wallet|webhook|contact-intelligence|campaign|analytics)(/|$)'
+          forbidden_pattern='^fleece/src/api(/|$)'
           fail=0
           for pkg in core-processor intelligence-processor; do
             echo "checking fleece/src/${pkg}/... dependencies..."

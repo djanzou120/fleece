@@ -5,13 +5,14 @@ metadata:
   namespace: fleece
 data:
   # --- PostgreSQL (shared, non-sensitive) ---
-  # NOTE: POSTGRES_DRIVER/DEFAULT_CURRENCY below are legacy defaults read
-  # only by the 8 pre-migration Go services (src/messaging, src/routing, …,
-  # envOr(...) fallbacks) which src/api/src/core-processor/
-  # src/intelligence-processor do NOT read at all (grep-verified against
-  # each cmd/*/main.go). Harmless to keep (unused extra env vars in the 3
-  # new binaries) but no longer meaningful for the services actually
-  # deployed by deploy/k8s/services/ — kept for reference/non-K8s local runs.
+  # NOTE: POSTGRES_DRIVER/DEFAULT_CURRENCY below were read only by the 8
+  # pre-migration Go services (envOr(...) fallbacks). M-023 DELETED those
+  # services, and src/api / src/core-processor / src/intelligence-processor
+  # do NOT read either key (grep-verified against each cmd/*/main.go), so
+  # nothing deployed by deploy/k8s/services/ consumes them any more. Kept
+  # deliberately: harmless (unused extra env vars in the 3 new binaries) and
+  # still useful to non-K8s local runs. Drop them the day a cleanup pass
+  # confirms no local tooling reads them either.
   POSTGRES_DRIVER: "postgres"
   DEFAULT_CURRENCY: "XAF"
 

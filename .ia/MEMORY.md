@@ -192,8 +192,43 @@ empêcher) et la borne de capture. État final : `go build`/`go vet` exit 0, `go
 **273 tests PASS** (core-processor + api), `gofmt` vide sur les paquets touchés, `go mod tidy` sans diff,
 `tsc --noEmit` platform-app 0 erreur, 0 import d'un ancien service.
 
-**Reste ouvert.** **M-023** (suppression de 8 services Go + branche `wip/T-018-campaign`) attend toujours le
-**feu vert explicite de l'utilisateur** — c'est désormais le *seul* bloquant avant la Phase 5.
+### Session 2026-07-31 (suite) — M-023 : les 8 services pré-migration sont supprimés
+
+**Feu vert utilisateur obtenu**, périmètre **arbre de travail seul**. **226 fichiers Go** supprimés sur 8
+répertoires (`messaging`, `routing`, `provider`, `wallet`, `webhook`, `campaign`, `contact-intelligence`,
+`analytics`). `src/` ne contient plus que les 3 déployables Go (`api`, `core-processor`,
+`intelligence-processor`), les paquets TS et les libs partagées.
+
+**Méthode — les préconditions ont été vérifiées AVANT de supprimer, pas après :** `go list -deps` sur tout
+le code conservé (api + 2 workers + `src/go/*` + bastion) → **0 import** d'un des 8 services ; le chiffre
+« 226 fichiers » du tracker recompté par `find` plutôt que repris de confiance ; `deploy/k8s/services/`
+déjà à 3 (M-024) et clients TS déjà sur `API_URL` unique (M-025).
+
+**Le vrai piège de M-023 n'était pas la suppression, mais ses trois points d'attache** — invisibles pour
+`go build`, ils auraient cassé la **CI** au commit suivant sur du code n'existant plus :
+
+1. `.github/workflows/ci.yml` construisait encore `pkg=messaging` dans la boucle des binaires de production
+   (c'était la garde de non-régression D-M09 pour l'ancien layout « `main.go` à la racine du package »).
+   Entrée retirée ; `mk/go.mk` conserve **volontairement** son conditionnel `gobuildpath`, l'ancien layout
+   restant valide pour un futur outil Go mono-package.
+2. Le `forbidden_pattern` de la garde D-M20 listait les 8 services supprimés → réduit à
+   `^fleece/src/api(/|$)`, **seule frontière encore vivante**. `go list -deps` ne peut pas émettre un paquet
+   inexistant : garder les autres aurait affiché une règle en réalité assurée par leur simple absence.
+3. Commentaire résiduel dans `deploy/k8s/config/configmap.yaml`.
+
+**État vérifié après suppression :** `go build`/`go vet` exit 0 · `go test ./src/...` **0 FAIL, 414 tests
+PASS** sur 6 paquets · `go mod tidy` sans diff · `make build` produit un **exécutable** réel pour les 3
+binaires (simulation de l'étape CI D-M09) · garde D-M20 verte avec le nouveau pattern.
+**Effet de bord notable :** `gofmt -l src/` est maintenant **vide sur le dépôt entier** — les 11 fichiers
+non formatés qu'il signalait depuis longtemps vivaient tous dans les services supprimés.
+
+**Branche `wip/T-018-campaign` CONSERVÉE** (SHA `d4520df`, local et `origin`, 33 fichiers / 3684 lignes) :
+écartée du périmètre par choix explicite de l'utilisateur. C'était la seule partie réellement irréversible
+de M-023, et elle ne coûte rien — hors arbre de travail, sans effet sur le build ni la CI.
+
+**Phase 4 est COMPLÈTE. Plus aucun bloquant avant la Phase 5** — prochaine étape **M-026** (acceptance de
+régression T-001..T-019 sur la nouvelle architecture ; T-005 y est de nouveau couvert de bout en bout,
+CRUD par D-M40 et livraison par D-M43).
 
 ### Session 2026-07-14 — Pivot architecture + plan de migration
 
