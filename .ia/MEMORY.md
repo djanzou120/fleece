@@ -226,9 +226,58 @@ non formatés qu'il signalait depuis longtemps vivaient tous dans les services s
 écartée du périmètre par choix explicite de l'utilisateur. C'était la seule partie réellement irréversible
 de M-023, et elle ne coûte rien — hors arbre de travail, sans effet sur le build ni la CI.
 
-**Phase 4 est COMPLÈTE. Plus aucun bloquant avant la Phase 5** — prochaine étape **M-026** (acceptance de
-régression T-001..T-019 sur la nouvelle architecture ; T-005 y est de nouveau couvert de bout en bout,
-CRUD par D-M40 et livraison par D-M43).
+**Phase 4 est COMPLÈTE.**
+
+### Session 2026-07-31 (fin) — M-026 : QA de régression, verdict PASS
+
+**La migration est terminée.** Phases 0 à 5 vertes ; M-027..M-029 (volet Drizzle) restent optionnels et
+indépendants.
+
+**Ce qui a rendu cette passe différente : elle a tourné contre une VRAIE infrastructure.** Docker étant
+disponible, j'ai **levé** les SKIP hérités des QA précédentes au lieu de les reconduire — PostgreSQL 16 et
+RabbitMQ 3 en conteneurs éphémères, les 3 binaires réels lancés contre eux. C'est exactement ce qui a fait
+tomber un défaut invisible depuis toujours.
+
+**D-M45 — le défaut trouvé, et sa leçon.** `GET /analytics/kpis` répondait **500 en permanence sur tout
+déploiement neuf**. `analytics_refresh.go` détecte « MV jamais peuplée » pour retomber sur un REFRESH
+non-concurrent ; il cherchait le fragment `has not been populated`, qui est le message de Postgres pour un
+**SELECT** sur une MV vide. Or ce ticker n'exécute que des **REFRESH**, auxquels Postgres répond une
+formulation **toute autre** : `CONCURRENTLY cannot be used when the materialized view is not populated`.
+Les deux chaînes ne se contiennent pas (`has not BEEN populated`) : le repli ne se déclenchait **jamais**,
+la MV restait vide **indéfiniment**, et le worker journalisait une ERROR à chaque tick sans jamais
+converger.
+
+> **La leçon, à retenir au-delà de ce bug : le test unitaire *inventait* le message d'erreur.** Il mockait
+> celui du SELECT pour exercer le chemin du REFRESH. Il était vert pendant que la production était cassée.
+> Un mock écrit d'après la documentation plutôt que d'après une observation ne teste que la cohérence du
+> code avec l'idée qu'on s'en fait. **Quand une logique dépend du texte d'une erreur d'un système externe,
+> il faut avoir vu ce texte.** Le correctif porte désormais des fragments réellement observés contre PG16,
+> le test utilise le vrai message, et `TestIsNotPopulatedError_realPostgresMessages` garde les deux.
+
+**Vérifications marquantes :**
+
+- **19 migrations / 73 statements** appliquées par Atlas sur une base **vierge**, sans erreur ; 9 schémas
+  métier conformes au modèle « un schéma par service » ; `atlas migrate validate` exit 0 (l'intégrité de
+  `atlas.sum` n'est plus un SKIP).
+- **T-005 prouvé de bout en bout, chaîne authentique** : `POST /webhooks/telegram` (vrai producteur) →
+  corrélation → publication AMQP → `core-processor` → fan-out concurrent vers 3 endpoints → le récepteur
+  reçoit un POST dont la **signature HMAC-SHA256 a été recalculée indépendamment et validée**.
+- **Le retry a été observé se déclencher pour de vrai** : `attempts` 1 → 2 et backoff escaladé de 1 min à
+  ~300 s = `backoffFor(2)`. Un double incrément aurait donné 3 et 30 min — **l'invariant B1 est donc prouvé
+  en exécution, pas seulement en test unitaire**.
+- **Défaut `FLEECE_ENV` fail-closed confirmé sur le service en marche** : `http://localhost` accepté en dev,
+  **refusé quand la variable n'est pas définie**. Les IP privées et l'IP de métadonnées cloud sont bien
+  rejetées (E5).
+- Les non-200 observés ont été **instruits un par un** plutôt que comptés comme des échecs : `GET
+  /wallet/{ws}` → 404 (pas de wallet pour ce workspace), `POST /routing/select` → 422 (base sans seed de
+  routes). Le port `:8080` codé en dur est **cohérent** avec le manifeste K8s, qui n'injecte aucune
+  variable `PORT`.
+
+**D-M46 (nouvelle dette, pré-existante).** Les clients REST de `graphql-api` sont **tous des stubs** — le
+`fetch` est commenté (`TODO(production)`, `void baseUrl`). L'intégration BFF ↔ `src/api` n'est donc
+exercée **nulle part** : `tsc` est vert sans qu'aucune requête ne parte. C'est le même angle mort qui avait
+laissé passer D-M40 jusqu'en M-025. J'ai re-confronté les 7 chemins appelés aux 26 routes réellement
+enregistrées (alignés, verbes compris) — mais c'est une revue statique, pas une preuve d'exécution.
 
 ### Session 2026-07-14 — Pivot architecture + plan de migration
 
