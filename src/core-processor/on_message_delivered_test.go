@@ -109,12 +109,21 @@ func TestHandleMessageDelivered_dbError(t *testing.T) {
 // rejoue ses updates jusqu'a 24h — ou tout autre double-traitement), le
 // fan-out webhook NE DOIT JAMAIS se declencher, sous peine d'envoyer le MEME
 // evenement en double au client final a chaque rejeu. On le prouve en
-// verifiant qu'AUCUNE requete SQL supplementaire (le chargement des endpoints
-// abonnes) n'est emise au-dela de l'UPDATE lui-meme : une seule requete au
-// total.
+// verifiant qu'AUCUNE requete de fan-out (chargement des endpoints abonnes,
+// insertion d'une delivery) n'est emise.
+//
+// ASSERTION AFFINEE (D-M37) : ce test comptait auparavant les requetes et en
+// exigeait EXACTEMENT 1. Ce comptage n'etait qu'un PROXY — ce qui compte n'est
+// pas le NOMBRE de requetes mais leur NATURE. Le correctif D-M37 ajoute sur ce
+// meme chemin une relecture du statut, purement diagnostique, qui faisait
+// echouer le test alors que la propriete testee (aucun webhook envoye) restait
+// parfaitement vraie. On assertit desormais directement l'absence de toute
+// requete touchant le schema webhook : c'est l'invariant reel, et il resiste a
+// l'ajout de requetes sans rapport.
 func TestHandleMessageDelivered_rows0_neverFansOutWebhook(t *testing.T) {
 	conn := &fakeConn{querySteps: []queryStep{
-		{rows: fakeRowsOfCols([]string{"workspace_id"})}, // 0 ligne
+		{rows: fakeRowsOfCols([]string{"workspace_id"})},                        // 0 ligne
+		{rows: fakeRowsOfCols([]string{"status"}, []driver.Value{"delivered"})}, // relecture D-M37
 	}}
 	svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: testLogger()}
 
@@ -123,7 +132,54 @@ func TestHandleMessageDelivered_rows0_neverFansOutWebhook(t *testing.T) {
 		t.Fatalf("handleMessageDelivered() erreur inattendue : %v", err)
 	}
 
-	if len(conn.queries) != 1 {
-		t.Fatalf("nombre de requetes = %d, voulu EXACTEMENT 1 (0 ligne -> AUCUNE requete de fan-out webhook, donc AUCUN webhook envoye) : %+v", len(conn.queries), conn.queries)
+	for _, q := range conn.queries {
+		if strings.Contains(q, "webhook.") {
+			t.Fatalf("B1/D-M26 : requete de fan-out webhook emise alors qu'AUCUNE ligne n'a transitionne (le client recevrait le meme evenement en double a chaque rejeu) : %q", q)
+		}
+	}
+}
+
+// TestLogRejectedDelivery_nonTerminalStatus_isWarned est la garde de D-M37 :
+// un DLR rejete alors que le message est dans un etat NON TERMINAL est une
+// PERTE, pas une idempotence — le message ne progressera plus jamais. Le test
+// prouve que le statut reel est bien relu (c'est ce qui manquait : le log
+// d'origine ne le contenait pas, rendant les deux cas indiscernables en
+// production).
+func TestLogRejectedDelivery_readsCurrentStatus(t *testing.T) {
+	for _, status := range []string{"pending", "delivered"} {
+		t.Run(status, func(t *testing.T) {
+			conn := &fakeConn{querySteps: []queryStep{
+				{rows: fakeRowsOfCols([]string{"status"}, []driver.Value{status})},
+			}}
+			svc := &Service{DB: newFakeGosqlDB(t, conn), Logger: testLogger()}
+
+			svc.logRejectedDelivery(context.Background(), messageEvent{MessageID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+
+			if len(conn.queries) != 1 {
+				t.Fatalf("nombre de requetes = %d, voulu 1 (relecture du statut) : %+v", len(conn.queries), conn.queries)
+			}
+			if !strings.Contains(conn.queries[0], "SELECT status FROM messaging.messages") {
+				t.Errorf("le statut reel n'est pas relu — les deux cas resteraient indiscernables : %q", conn.queries[0])
+			}
+		})
+	}
+}
+
+// TestTerminalMessageStatuses_classification verrouille la frontiere entre
+// « benin » et « perte » : se tromper ici ferait passer une perte reelle pour
+// une idempotence normale (ou inonderait les logs de faux WARN).
+func TestTerminalMessageStatuses_classification(t *testing.T) {
+	terminal := []string{"delivered", "failed", "rejected"}
+	nonTerminal := []string{"pending", "draft", "sending", "sent", ""}
+
+	for _, s := range terminal {
+		if !terminalMessageStatuses[s] {
+			t.Errorf("%q devrait etre terminal (un DLR rejete depuis cet etat est benin)", s)
+		}
+	}
+	for _, s := range nonTerminal {
+		if terminalMessageStatuses[s] {
+			t.Errorf("%q ne doit PAS etre terminal (un DLR rejete depuis cet etat est une perte, D-M37)", s)
+		}
 	}
 }

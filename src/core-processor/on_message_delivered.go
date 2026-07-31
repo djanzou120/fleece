@@ -99,8 +99,17 @@ func handleMessageDelivered(ctx context.Context, s *Service, evt messageEvent) e
 		// 'draft'/'pending'), soit id inexistant. Dans tous les cas ce n'est PAS
 		// une erreur — le message AMQP est acquitte normalement (Ack), seul le
 		// log distingue le cas pour observabilite. AUCUN fan-out webhook (B1/D-M26).
-		s.Logger.Info("core-processor: message.delivered ignore (statut deja 'delivered' ou pas 'sent', ou introuvable)",
-			"message_id", evt.MessageID, "external_id", evt.ExternalID, "provider_id", evt.ProviderID)
+		//
+		// CORRECTIF D-M37 : le statut REEL est relu et journalise. Sans lui, ce
+		// log confondait deux situations radicalement differentes sous un meme
+		// niveau INFO — une idempotence benigne (deja 'delivered', rejeu
+		// Telegram) et une PERTE REELLE de DLR. Le second cas devient inevitable
+		// des le remplacement des stubs providers (D-M08) : mapProviderStatus
+		// retourne 'pending' pour tout statut provider inconnu, et le vrai Twilio
+		// repond 'queued'/'accepted' — un message partira donc en
+		// status='pending' avec un external_id, et son DLR 'delivered' sera
+		// rejete par la garde "status = 'sent'" sans que rien ne le signale.
+		s.logRejectedDelivery(ctx, evt)
 		return nil
 	case err != nil:
 		// Erreur technique (ex. DB indisponible) : transitoire -> requeue

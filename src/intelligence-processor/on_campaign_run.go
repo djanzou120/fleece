@@ -346,7 +346,30 @@ func (s *Service) reserveRecipientForSending(ctx context.Context, recipientID in
 // 'failed' terminal. Garde "AND status = 'sending'" : idempotent par
 // construction (ne retransitionne jamais une ligne deja 'sent'/'pending' par
 // un autre chemin).
+//
+// CORRECTIF D-M31 — CONTEXTE DETACHE. Avant ce correctif, ce revert recevait le
+// MEME ctx que le POST /messages qui venait d'echouer. Or la cause d'echec la
+// plus courante en exploitation n'est pas un 5xx du provider : c'est un
+// SIGTERM, c'est-a-dire l'arret gracieux NORMAL d'un rolling deploy. Le ctx est
+// alors deja annule quand on arrive ici, l'UPDATE echoue immediatement en
+// context.Canceled, et la ligne reste PIEGEE en 'sending' — la reprise de
+// campagne filtre sur status='pending' et ne la reprend donc JAMAIS. Un
+// destinataire perdu a chaque deploiement, sans aucune trace.
+//
+// Ce revert persiste un fait DEJA ACQUIS (l'envoi a echoue, on le sait) : il
+// doit survivre a l'annulation, exactement comme les persistances du volet
+// webhook sortant de core-processor (B1/E1, webhook_persist_context.go) — meme
+// raisonnement, meme borne de securite courte pour ne jamais retarder un arret
+// gracieux.
+//
+// LIMITE ASSUMEE : cela ferme la fenetre SIGTERM, PAS celle d'un crash brutal
+// (SIGKILL, OOM) survenant entre la reservation et le revert. Un balayage
+// periodique des 'sending' anciens reste necessaire pour ce cas — a fusionner
+// avec D-M30.
 func (s *Service) revertRecipientToPending(ctx context.Context, recipientID int64) error {
+	ctx, cancel := detachedRevertContext(ctx)
+	defer cancel()
+
 	return s.DB.Exec(ctx,
 		`UPDATE campaign.campaign_recipients SET status = 'pending' WHERE id = $1 AND status = 'sending'`,
 		recipientID,
