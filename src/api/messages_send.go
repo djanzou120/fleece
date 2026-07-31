@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
+
+	gosql "fleece/src/go/sql"
 )
 
 // sendMessageRequest est le corps JSON de POST /messages.
@@ -140,6 +143,29 @@ func (s *Service) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 5bis. PRÉ-VOL WALLET (D-M36) — AVANT d'envoyer quoi que ce soit.
+	// La garantie « prépayé » exige de refuser avant l'envoi ; or le coût réel
+	// n'est connu qu'après la réponse du provider. On compare donc le solde à
+	// l'ESTIMATION, en lecture seule. Un canal gratuit (estimation 0, Telegram)
+	// ne déclenche ni lecture ni refus. Voir messages_wallet_debit.go.
+	estimated := prov.EstimateCost(req.Recipient, req.Body)
+	if err := s.assertSufficientBalance(ctx, req.WorkspaceID, estimated); err != nil {
+		switch {
+		case errors.Is(err, errInsufficientBalance):
+			s.Logger.Warn("messages: solde insuffisant, envoi refuse",
+				"workspace_id", req.WorkspaceID, "estimated_cost", estimated)
+			writeError(w, http.StatusPaymentRequired, "solde insuffisant")
+		case errors.Is(err, errWalletNotFound):
+			s.Logger.Warn("messages: wallet introuvable, envoi refuse",
+				"workspace_id", req.WorkspaceID)
+			writeError(w, http.StatusPaymentRequired, "wallet introuvable pour ce workspace")
+		default:
+			s.Logger.Error("messages: verification du solde", "workspace_id", req.WorkspaceID, "err", err)
+			writeError(w, http.StatusInternalServerError, "erreur interne")
+		}
+		return
+	}
+
 	result, err := prov.Send(ctx, req.Recipient, req.Body)
 	if err != nil {
 		s.Logger.Error("messages: provider.Send", "provider_id", providerID, "err", err)
@@ -154,10 +180,15 @@ func (s *Service) HandleSendMessage(w http.ResponseWriter, r *http.Request) {
 	// Valeurs possibles de ProviderResult.Status : "sent", "failed", "rejected".
 	status := mapProviderStatus(result.Status)
 
-	// 6. Persistance dans messaging.messages.
+	// 6. Persistance ATOMIQUE : INSERT du message + débit du wallet (D-M36).
+	//
+	// Les deux écritures sont dans LA MÊME transaction, et c'est tout l'intérêt :
+	// une ligne messaging.messages avec cost > 0 existe si et seulement si le
+	// débit correspondant a été committé. C'est l'invariant sur lequel repose le
+	// remboursement de core-processor, qui part précisément de cette colonne.
 	msgID := newUUID()
-	if err := s.insertMessage(ctx, msgID, req.WorkspaceID, req.Recipient, req.Body, providerID, channel, status, result.ExternalID, result.Cost); err != nil {
-		s.Logger.Error("messages: insert", "err", err)
+	if err := s.persistSentMessage(ctx, msgID, req, providerID, channel, status, result); err != nil {
+		s.Logger.Error("messages: persistance", "err", err)
 		writeError(w, http.StatusInternalServerError, "erreur de persistance")
 		return
 	}
@@ -190,6 +221,42 @@ func (s *Service) insertMessage(
 	id, workspaceID, recipient, content, providerID, channel, status, externalID string,
 	cost int64,
 ) error {
+	args := insertMessageArgs(id, workspaceID, recipient, content, providerID, channel, status, externalID, cost)
+	return s.DB.Exec(ctx, insertMessageQuery, args...)
+}
+
+// insertMessageTx est la variante transactionnelle d'insertMessage : MÊME
+// requête, MÊMES arguments, exécutés sur une transaction fournie plutôt que
+// sur le pool.
+//
+// Elle existe pour D-M36 : l'INSERT du message et le débit du wallet doivent
+// être atomiques (voir messages_wallet_debit.go). La requête et la construction
+// des arguments sont factorisées (insertMessageQuery / insertMessageArgs) pour
+// qu'il soit IMPOSSIBLE que les deux chemins divergent — une colonne ajoutée
+// d'un seul côté aurait produit des messages différemment formés selon qu'ils
+// sont payants ou non.
+func insertMessageTx(
+	ctx context.Context,
+	tx *gosql.Tx,
+	id, workspaceID, recipient, content, providerID, channel, status, externalID string,
+	cost int64,
+) error {
+	args := insertMessageArgs(id, workspaceID, recipient, content, providerID, channel, status, externalID, cost)
+	return tx.Exec(ctx, insertMessageQuery, args...)
+}
+
+// insertMessageQuery est la requête partagée par insertMessage et
+// insertMessageTx.
+const insertMessageQuery = `INSERT INTO messaging.messages
+   (id, workspace_id, recipient, content, status, channel, provider_id, external_id, cost, created_at)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+
+// insertMessageArgs construit les arguments positionnels d'insertMessageQuery,
+// en appliquant la conversion NULL documentée ci-dessus. Fonction pure.
+func insertMessageArgs(
+	id, workspaceID, recipient, content, providerID, channel, status, externalID string,
+	cost int64,
+) []any {
 	var extID sql.NullString
 	if externalID != "" {
 		extID = sql.NullString{String: externalID, Valid: true}
@@ -198,12 +265,9 @@ func (s *Service) insertMessage(
 	if cost != 0 {
 		costCents = sql.NullInt64{Int64: cost, Valid: true}
 	}
-	return s.DB.Exec(ctx,
-		`INSERT INTO messaging.messages
-		   (id, workspace_id, recipient, content, status, channel, provider_id, external_id, cost, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+	return []any{
 		id, workspaceID, recipient, content, status, channel, providerID, extID, costCents, time.Now().UTC(),
-	)
+	}
 }
 
 // mapProviderStatus convertit le statut retourne par un provider vers les

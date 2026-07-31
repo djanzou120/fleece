@@ -112,6 +112,17 @@ type fakeConn struct {
 	// n'utilise que lastQuery/lastArgs.
 	queries     []string
 	argsHistory [][]driver.NamedValue
+
+	// Support transactionnel, AJOUTÉ pour D-M36 (débit wallet atomique avec
+	// l'INSERT du message). Opt-in via txAware : sans lui, Begin conserve son
+	// comportement historique (erreur explicite), donc aucun test existant
+	// n'est affecté. Les compteurs permettent de prouver qu'un ensemble
+	// d'écritures partage bien UNE SEULE transaction — l'invariant de D-M36,
+	// que le seul examen des requêtes émises ne suffirait pas à établir.
+	txAware       bool
+	beginCount    int
+	commitCount   int
+	rollbackCount int
 }
 
 var _ driver.ExecerContext = (*fakeConn)(nil)
@@ -122,7 +133,27 @@ func (c *fakeConn) Prepare(query string) (driver.Stmt, error) {
 }
 func (c *fakeConn) Close() error { return nil }
 func (c *fakeConn) Begin() (driver.Tx, error) {
-	return nil, errors.New("fakeConn: transactions non supportees par ce faux driver")
+	if !c.txAware {
+		return nil, errors.New("fakeConn: transactions non supportees par ce faux driver")
+	}
+	c.beginCount++
+	return &fakeTx{conn: c}, nil
+}
+
+// fakeTx compte les COMMIT/ROLLBACK. Les requêtes exécutées « dans » la
+// transaction passent par les mêmes ExecContext/QueryContext que hors
+// transaction (database/sql réutilise la connexion), donc conn.queries reste
+// l'unique source d'observation des requêtes émises.
+type fakeTx struct{ conn *fakeConn }
+
+func (t *fakeTx) Commit() error {
+	t.conn.commitCount++
+	return nil
+}
+
+func (t *fakeTx) Rollback() error {
+	t.conn.rollbackCount++
+	return nil
 }
 func (c *fakeConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	c.lastQuery = query

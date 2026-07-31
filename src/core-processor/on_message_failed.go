@@ -146,8 +146,17 @@ func handleMessageFailed(ctx context.Context, s *Service, evt messageEvent) erro
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Anomalie : un message facture (cost > 0) implique necessairement
-		// qu'un wallet existe (le debit initial a du reussir a l'envoi, voir
-		// wallet_deduct.go). Un wallet introuvable ici est une incoherence de
+		// qu'un wallet existe — le debit initial a reussi a l'envoi, dans la
+		// MEME transaction que l'INSERT du message (D-M36, voir
+		// src/api/messages_wallet_debit.go).
+		//
+		// NOTE : cette justification etait FACTUELLEMENT FAUSSE avant D-M36, et
+		// renvoyait vers wallet_deduct.go — un endpoint que PERSONNE n'appelait.
+		// Il n'existait alors aucun debit a l'envoi : ce remboursement creditait
+		// un wallet jamais debite, c'est-a-dire creait de la monnaie. L'invariant
+		// « cost > 0 => debit committe » est desormais reellement garanti.
+		//
+		// Un wallet introuvable ici est une incoherence de
 		// donnees, pas une panne transitoire — requeuer ne la resoudra
 		// jamais. On logge en ERROR pour investigation et on COMMIT quand
 		// meme la transition de statut deja appliquee (etape 1) plutot que
