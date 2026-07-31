@@ -73,11 +73,14 @@ côté Drizzle contre `users_workspace_id_fkey` côté PostgreSQL). C'est sans
 conséquence : le nom d'une FK auto-générée n'est pas une propriété du schéma, et
 la comparaison porte sur la relation (table, colonnes → cible).
 
-## Limite connue
+## Résolution du paquet
 
-`@fleece/model` n'est pas encore lié dans `node_modules` : `npm install` échoue
-à la racine du dépôt pour une raison sans rapport (**D-M47** — le lockfile porte
-`graphql@17` alors que `@graphql-codegen/cli@5.0.2` plafonne son peer à
-`graphql@16`). La compilation passe grâce au mapping `paths` des `tsconfig.json`
-consommateurs, exactement comme pour `@fleece/api-common`. La résolution à
-l'exécution suivra dès que D-M47 sera résolue.
+`@fleece/model` est lié dans `node_modules/@fleece/model` par les workspaces npm.
+Les `tsconfig.json` consommateurs déclarent en plus un mapping `paths`, comme
+pour `@fleece/api-common` — ceinture et bretelles, utile tant qu'un
+`node_modules` n'a pas été régénéré.
+
+> Historique : à sa création, ce paquet n'était pas lié, `npm install` échouant
+> à la racine pour une raison sans rapport (**D-M47** — `graphql` était fixé en
+> `^17` alors que `graphql-yoga`, le seul consommateur réel, ne supporte que
+> `^15 || ^16`). D-M47 est résolue ; le lien existe désormais.

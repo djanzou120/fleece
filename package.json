@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.39.3",
-    "graphql": "^17.0.1",
+    "graphql": "^16.14.2",
     "graphql-redis-subscriptions": "^2.6.1",
     "graphql-subscriptions": "^2.0.0",
     "graphql-yoga": "^5.21.2",

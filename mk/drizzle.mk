@@ -11,30 +11,23 @@
 deps:: ## install the dependencies
 	npm install
 
-# `generate` et `build` NE DEPENDENT VOLONTAIREMENT PAS DE `deps`, contrairement
-# a mk/esbuild.mk et mk/node.mk.
-#
-# Raison (D-M47, constatee pendant M-028) : `npm install` ET `npm ci` echouent
-# aujourd'hui a la racine du depot — le lockfile porte graphql@17.0.1 alors que
-# @graphql-codegen/cli@5.0.2 plafonne son peer a graphql@16, et npm >= 7 fait
-# respecter les peers. Enchainer `deps` rendrait ces deux cibles inutilisables
-# pour une raison SANS AUCUN RAPPORT avec le schema. Ce sont de toute facon des
-# etapes hors-ligne (codegen et verification de types) : elles n'ont besoin que
-# d'un node_modules deja present, pas d'une resolution complete.
-# Retablir la dependance a `deps` le jour ou D-M47 sera resolue.
-
 # Produit le DDL correspondant aux définitions Drizzle, dans le répertoire de
 # travail jetable déclaré par drizzle.config.ts (jamais migrations/).
 # Sert à la vérification de parité (M-028), pas à alimenter une base.
-generate:: ## generate the DDL from the Drizzle definitions (parity check input)
+#
+# Ces cibles ont temporairement été découplées de `deps` tant que D-M47 rendait
+# `npm install` inopérant a la racine ; D-M47 etant resolue (graphql ramene en
+# ^16, la seule ligne que graphql-yoga supporte), la dependance est retablie
+# comme dans mk/esbuild.mk et mk/node.mk.
+generate:: deps ## generate the DDL from the Drizzle definitions (parity check input)
 	$(info generating DDL from ${pkg} Drizzle definitions)
 	npm exec -- drizzle-kit generate --config=src/${pkg}/drizzle.config.ts
 
-build:: ## type-check the schema definitions
+build:: deps ## type-check the schema definitions
 	$(info type-checking ${pkg})
 	npm exec -- tsc -p ./src/${pkg}/tsconfig.json --noEmit
 
-test:: ## test the package
+test:: deps ## test the package
 	$(info testing ${pkg})
 	npm exec -- jest --passWithNoTests --testPathPattern './src/${pkg}/.*'
 
